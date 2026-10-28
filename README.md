@@ -25,7 +25,7 @@ Every claim above is reproducible. pi-rs is verified against real pi at three le
    request each one sends is recorded and diffed — system prompt (byte-exact), tool schemas, wire
    encoding, request params, stdout, exit codes, session JSONL, filesystem end-state. See
    [tests/atom](tests/atom).
-2. **Arena parity.** Registered as a first-class adapter in [harness-arena](https://github.com/) and
+2. **Arena parity.** Registered as a first-class adapter in our private harness-arena benchmark and
    raced against real pi 0.74.2. Score tied at 102/104; the only failing task (`hell-01`) fails in
    *both* arms, the same way.
 3. **Occupancy.** `/usr/bin/time -v` peak RSS and wall clock on every arena task. [docs/bench.md](docs/bench.md).
