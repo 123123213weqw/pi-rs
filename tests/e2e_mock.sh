@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # E2E mock test for pi-rs on node5: agent loop + tools + session JSONL + print mode.
 set -e
-PI=~/pi-rust/target/release/pi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PI="$ROOT/target/release/pi"
 WORK=$(mktemp -d /tmp/pi-rs-e2e.XXXXXX)
 cd "$WORK"
 PORT=8999
@@ -9,7 +10,7 @@ PORT=8999
 run_case () {
   local name="$1"; shift
   local scenario="$1"; shift
-  python3 ~/pi-rust/tests/mock_server.py "$scenario" $PORT &
+  python3 "$ROOT/tests/mock_server.py" "$scenario" $PORT &
   MOCK_PID=$!
   sleep 0.4
   local out

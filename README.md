@@ -1,7 +1,13 @@
 # pi-rs
 
+[![CI](https://github.com/123123213weqw/pi-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/123123213weqw/pi-rs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-4cc38a)](LICENSE)
+![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
+
 > A behavioral clone of the [pi](https://github.com/earendil-works/pi) coding agent, rebuilt in Rust.
 > Not a rewrite with creative liberties — **85/85 behavior atoms verified identical**, task for task.
+
+![pi vs pi-rs](assets/comparison.png)
 
 | | pi 0.74.2 (Node ≥ 22.19) | **pi-rs** |
 |---|---|---|

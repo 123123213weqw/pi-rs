@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Install ripgrep + fd (grep/find tools backends)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep fd-find
+
+      - name: Mock end-to-end (no API key needed)
+        run: bash tests/e2e_mock.sh
+
+      - name: Differ import smoke
+        run: python3 -c "import sys; sys.path.insert(0, 'tests/atom'); import diff_atoms; print('differ OK')"
+
+      - name: Binary smoke
+        run: |
+          ./target/release/pi --version
+          ./target/release/pi --help | head -5
