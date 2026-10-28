@@ -1,82 +1,122 @@
 # pi-rs
 
-pi coding agent 的 Rust 复刻，对齐 `@earendil-works/pi-coding-agent` **v0.74.2** 的
-headless 核心：功能一致、系统占用低一个数量级。
+> A behavioral clone of the [pi](https://github.com/earendil-works/pi) coding agent, rebuilt in Rust.
+> Not a rewrite with creative liberties — **85/85 behavior atoms verified identical**, task for task.
+
+| | pi 0.74.2 (Node ≥ 22.19) | **pi-rs** |
+|---|---|---|
+| Install size | 197 MB (node_modules) | **2.5 MB single static binary** |
+| Peak RSS (real tasks) | 161–201 MB | **8–63 MB (~13–21× lower)** |
+| Cold start | 910 ms | **2 ms (~455×)** |
+| Runtime deps | Node.js | **none** |
+| Arena¹ | 102/104 (98.1%) | **102/104 — same task, same failure** |
+
+¹ harness-arena: 52 tasks × 2 rounds, same model (deepseek-chat), same machine. Full data in [docs/bench.md](docs/bench.md).
+
+An agent spends 99% of its wall time waiting on the model — a different language can't buy speed.
+What it *can* buy is density and form factor: **~100 concurrent agent sessions in under 1 GB**, one
+file to deploy, nothing to install. That's what pi-rs is for.
+
+## Why a clone, not a fork
+
+Every claim above is reproducible. pi-rs is verified against real pi at three levels:
+
+1. **Behavior atoms (85/85 identical).** Both binaries run against the same scripted mock LLM; every
+   request each one sends is recorded and diffed — system prompt (byte-exact), tool schemas, wire
+   encoding, request params, stdout, exit codes, session JSONL, filesystem end-state. See
+   [tests/atom](tests/atom).
+2. **Arena parity.** Registered as a first-class adapter in [harness-arena](https://github.com/) and
+   raced against real pi 0.74.2. Score tied at 102/104; the only failing task (`hell-01`) fails in
+   *both* arms, the same way.
+3. **Occupancy.** `/usr/bin/time -v` peak RSS and wall clock on every arena task. [docs/bench.md](docs/bench.md).
+
+One documented divergence: pi sends `role: "developer"` to DeepSeek because its model catalog says
+so; the real API rejects it with HTTP 422, so pi-rs sends `system`.
+
+## Quick start
+
+```bash
+cargo build --release          # → target/release/pi, one 2.5 MB binary
+./target/release/pi -p "refactor src/foo.rs"            # one-shot print mode
+./target/release/pi --mode json -p "list todos"         # JSON event stream
+./target/release/pi -t read,grep,find,ls -p "review"    # read-only toolset
+DEEPSEEK_API_KEY=sk-... ./target/release/pi -p "hi"
+```
+
+Providers: `deepseek` (default), `openai`, or any OpenAI-compatible endpoint via `--api-key` +
+catalog ids (`deepseek-chat`, `deepseek-reasoner`, …) or `provider/model` passthrough.
+
+## What's inside
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │ pi (CLI)                                               │
-│  ├─ args.rs          CLI 参数（逐条对齐 args.ts）        │
-│  ├─ main.rs          模式分发：print / json / 一次性     │
-│  ├─ agent.rs         agent 循环（对齐 agent-loop.ts）    │
-│  ├─ provider.rs      DeepSeek/OpenAI 兼容 SSE 流式       │
-│  ├─ session.rs       会话 JSONL（header v3 + message）   │
-│  ├─ system_prompt.rs 系统提示词（逐字节对齐）            │
-│  ├─ context.rs       AGENTS.md / CLAUDE.md 发现          │
-│  └─ tools/           7 个内置工具 + 截断 + edit-diff      │
+│  ├─ args.rs          CLI flags (ported from args.ts)   │
+│  ├─ main.rs          print / json / one-shot modes     │
+│  ├─ agent.rs         agent loop (toolUse ⇄ toolResult) │
+│  ├─ provider.rs      OpenAI-compatible SSE streaming   │
+│  ├─ session.rs       session JSONL, header v3, tree    │
+│  ├─ system_prompt.rs byte-exact prompt builder         │
+│  ├─ context.rs       AGENTS.md / CLAUDE.md discovery   │
+│  └─ tools/           the 7 built-in tools              │
 └────────────────────────────────────────────────────────┘
 ```
 
-## 为什么是 Rust
+**The 7 built-in tools**, ported line-for-line from pi 0.74.2 — same names, same JSON schemas,
+same truncation (2000 lines / 50 KB), same error strings:
 
-agent 的耗时瓶颈在模型侧，harness 本地开销 <1%——语言换不来速度。
-语言真正决定的是**系统占用**（RSS / 冷启动 / 安装体积）：
+`read` (offset/limit continuation hints) · `bash` (tail truncation, temp-file escape hatch) ·
+`edit` (multi-hunk exact replace with NFKC fuzzy fallback, BOM/CRLF aware) · `write` ·
+`grep` (ripgrep-backed, `path:line: text`) · `find` (fd-backed, v8-compat) ·
+`ls` (case-insensitive sort, `/` suffix). Enabled by default: `read bash edit write`; the
+read-only trio activates via `--tools read,grep,find,ls`.
 
-| 指标 | pi 0.74.2 (Node 22+) | pi-rs |
-|---|---|---|
-| 安装体积 | node_modules ~100MB+ | 单二进制 2.5MB |
-| 运行时依赖 | Node ≥ 22.19 | 无 |
-| 常驻内存 | V8 堆底 ~40MB + 业务 | 预期 10–30MB |
-| 冷启动 | 数百 ms（V8 启动+模块解析） | ~5ms |
+Session files are **drop-in compatible** with pi: same header (`type:"session", version:3`),
+same entry tree (8-char ids, parentId chain), same usage accounting
+(`input = prompt − cached`), so arena-style bookkeeping reads both harnesses unchanged.
 
-（实测数据见下方“基准”。）
+## Implementation notes
 
-## 对齐范围（v0.74.2）
+- No async runtime: single-threaded event loop + blocking SSE — the agent loop *is* sequential.
+- Transcript lives on disk as JSONL; memory holds only what the next request needs.
+- Deps kept to five crates: `serde`, `serde_json` (preserve_order — model-emitted key order
+  round-trips verbatim), `ureq` (rustls), `uuid`, `unicode-normalization`.
+- The edit tool's diff/fuzzy-match engine is a line-for-line port of pi's `edit-diff.ts`,
+  including its NFKC smart-quote/dash normalization; `truncate.rs` reproduces pi's
+  head/tail truncation bit-for-bit, UTF-8 boundary handling included.
 
-### ✅ 已对齐
-
-- **7 个内置工具**，名称/描述/JSON Schema/输出格式逐字对齐：
-  `read`（offset/limit 续读提示）、`bash`（尾部截断 2000 行/50KB、temp file、
-  超时/非零退出消息）、`edit`（多块精确替换、NFKC 模糊匹配、BOM/CRLF 感知、
-  重叠/重复检测、错误文案）、`write`、`grep`（外部 rg，`path:line: text`、
-  500 字符行截断、limit 提示）、`find`（外部 fd，`--full-path` + `**/` 补全，
-  v8 兼容回退）、`ls`（大小写不敏感排序、`/` 后缀）。
-- **agent 循环**：工具调用顺序执行、toolResult 回填、stopReason 语义
-  （stop/toolUse/length/error/aborted）。
-- **会话 JSONL**：header `{type:"session",version:3,...}` 首行 + message 条目
-  （8 位 id、parentId 链），文件名 `{ISO 时间戳}_{id}.jsonl`，与 pi 会话
-  同目录布局；usage 字段（input/output/cacheRead/cacheWrite/totalTokens/cost）
-  与 arena 记账口径一致。
-- **系统提示词**：默认分支逐字节对齐（工具清单、guidelines、日期/cwd 行）。
-- **上下文文件**：`~/.pi/agent/AGENTS.md` 全局 + cwd→根逐级发现。
-- **CLI 参数面**：--provider/--model/--api-key/--system-prompt/
-  --append-system-prompt/--session-dir/--no-session/--continue/--tools/
-  --no-tools/--thinking/--mode json/-p 等，未知 flag 进 diagnostics。
-- **print 模式**：text 输出最终 assistant 文本；`--mode json` 输出事件流；
-  非 TTY 一次性运行（arena 接法）。
-
-### 🚧 路线图（未对齐）
-
-- 交互式 TUI（pi-tui 差分渲染）
-- extensions / skills / prompt templates / themes 加载
-- MCP 客户端、OAuth
-- compaction（上下文压缩）
-- Anthropic 原生 API（当前 DeepSeek/OpenAI 兼容端点优先，与 arena 同口径）
-- `--export` HTML、RPC 模式
-- 图片附件自动缩放（read 工具图片走 base64 原样附带）
-
-## 开发
+## Reproducing the claims
 
 ```bash
-cargo build --release          # 单 crate，无异步运行时
-bash tests/e2e_mock.sh         # mock provider 端到端（无需 API key）
-bash tests/parity_v100.sh <tasks-dir> <pi|pirs> <task-ids...>   # 真模型对拍
+# behavior atoms (needs: pi 0.74.2 + pi-rs on one box, no API key)
+bash tests/atom/run_atom.sh                     # → 85/85 atoms identical
+
+# occupancy + task parity on a real model
+bash tests/parity_v100.sh <tasks-dir> pirs <task-ids>
+bash tests/parity_v100.sh <tasks-dir> pi  <task-ids>
+
+# quick end-to-end without any key (scripted mock provider)
+bash tests/e2e_mock.sh
 ```
 
-依赖刻意最小：`serde` / `serde_json` / `ureq`(rustls) / `uuid` /
-`unicode-normalization`。grep/find 复用系统 `rg`/`fd`（同 pi 的 ensureTool
-路径），缺失时 find 回退内置 walker。
+Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
 
-## 基准
+## Parity scope
 
-见 `docs/bench.md`（V100 实测：同任务双臂对拍，/usr/bin/time -v 采集 RSS）。
+**Aligned**: the headless core — agent loop, 7 tools, session format, CLI surface
+(`-p`, `--mode json`, `--provider/--model/--api-key/--tools/--thinking/--session-dir/…`),
+system prompt, context-file discovery, usage/cost accounting.
+
+**Roadmap**: interactive TUI · extensions & skills loading · MCP client · compaction ·
+`--export` HTML · RPC mode · Anthropic-native API. (pi-durable's transactional runtime and
+chord plugin host are out of scope for now.)
+
+## Credits & license
+
+pi-rs is a derivative work of [pi](https://github.com/earendil-works/pi) by Mario Zechner
+(badlogic / earendil-works) — all design credit belongs to the original. This repo exists to
+study a question, not to replace the original: *when the model is the bottleneck, what does the
+harness's runtime actually cost you?* If you want the full pi experience — TUI, extensions,
+skills — use [pi itself](https://github.com/earendil-works/pi).
+
+MIT. See [LICENSE](LICENSE).
