@@ -42,6 +42,8 @@ def norm_volatile(s):
     s = re.sub(r"\.sess/[^\s:\]\"']+\.jsonl", "<SESSFILE>", s)
     # per-arm workdir absolute paths differ by name only
     s = re.sub(r"/tmp/atom-[^/]+/w-(pirs|pi)", "<WORK>", s)
+    # run-unique temp output files (pi-bash-<hex>.log / .out)
+    s = re.sub(r"pi-bash-[0-9a-f]+\.(log|out)", "pi-bash-<TMPID>", s)
     return s
 
 

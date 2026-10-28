@@ -12,11 +12,12 @@ pub const DESCRIPTION: &str = "Execute a bash command in the current working dir
 
 pub static PARAMETERS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| serde_json::json!({
     "type": "object",
-    "required": ["command"],
-        "properties": {
-        "command": { "type": "string", "description": "Bash command to execute" },
-        "timeout": { "type": "number", "description": "Timeout in seconds (optional, no default timeout)" }
-    }
+    "additionalProperties": false,
+    "properties": {
+        "command": { "type": "string", "description": "Shell command to execute" },
+        "timeout": { "anyOf": [ { "type": "number", "description": "Timeout in seconds (optional, no default timeout)" }, { "type": "null" } ] }
+    },
+    "required": ["command", "timeout"],
 }));
 
 pub struct BashOutput {
@@ -27,6 +28,17 @@ pub struct BashOutput {
 unsafe extern "C" {
     fn setsid() -> i32;
     fn kill(pid: i32, sig: i32) -> i32;
+}
+
+fn pi_bash_id() -> String {
+    // pi 1.4.0 names temp files pi-bash-<16 hex>.log
+    use std::fmt::Write;
+    let mut out = String::new();
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64 ^ (std::process::id() as u64) << 32;
+    for i in 0..4 {
+        let _ = write!(out, "{x:04x}", x = ((seed >> (i * 16)) & 0xffff) as u16);
+    }
+    out
 }
 
 fn drain<R: Read>(mut r: R) -> Vec<u8> {
@@ -116,13 +128,21 @@ pub fn run(command: &str, cwd: &std::path::Path, timeout_secs: Option<f64>) -> R
 
     let exit_code = status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
 
-    let t = truncate::truncate_tail(&raw, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
-    let mut text = t.content.clone();
+    // pi's accumulator counts lines streamingly: a trailing newline TERMINATES
+    // the last line instead of opening a new one (50000, not 50001). Content
+    // bytes, however, keep the trailing newline (error path parity).
+    let for_lines = raw.strip_suffix('\n').unwrap_or(raw.as_str());
+    let t = truncate::truncate_tail(for_lines, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
+    let mut text = if t.truncated {
+        t.content.clone()
+    } else {
+        raw.clone()
+    };
     if text.is_empty() {
         text = "(no output)".into();
     }
     if t.truncated {
-        let full_path = std::env::temp_dir().join(format!("pi-bash-{}.out", crate::util::short_id()));
+        let full_path = std::env::temp_dir().join(format!("pi-bash-{}.log", pi_bash_id()));
         let _ = std::fs::write(&full_path, &raw);
         let full = full_path.display().to_string();
         let total = t.total_lines;

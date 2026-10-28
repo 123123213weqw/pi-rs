@@ -148,6 +148,21 @@ fn main() -> ExitCode {
     };
 
     session.append_setup_entries(&model.provider, &model.id, "high");
+    // pi v1.4.0 stores the system prompt as a role:"system" message entry
+    session.append_system_message(system_prompt::build_sections(
+        system_prompt::SystemPromptOptions {
+            custom_prompt: a.system_prompt.as_deref(),
+            append_system_prompt: if a.append_system_prompt.is_empty() {
+                None
+            } else {
+                Some(a.append_system_prompt.join("\n\n").leak() as &str)
+            },
+            selected_tools: &selected,
+            tool_snippets: &snippets,
+            cwd: &cwd_str,
+            context_files: &context_files,
+        },
+    ));
 
     let mut history: Vec<Message> = Vec::new();
     if a.continue_ {

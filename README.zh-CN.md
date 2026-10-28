@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
 
 > [pi](https://github.com/earendil-works/pi) 编码代理的**行为克隆版**，用 Rust 重写。
-> 不是随手重造——**85/85 行为原子逐一验证一致**，题对题打平。
+> 不是随手重造——**169/169 行为原子对 pi v1.4.0 逐一验证一致**，场景对场景打平。
 
 | | pi 0.74.2（需 Node ≥ 22.19） | **pi-rs** |
 |---|---|---|
@@ -27,7 +27,7 @@ Agent 的墙钟时间 99% 花在等模型上——换语言买不到速度，但
 
 上面每个数字都可复现。pi-rs 对齐真 pi 分三层验证：
 
-1. **行为原子（85/85 一致）**。两个二进制打同一个脚本化 mock LLM，各自发出的**每个请求全部落盘**，
+1. **行为原子（169/169 一致）**。两个二进制打同一个脚本化 mock LLM，各自发出的**每个请求全部落盘**，
    逐原子 diff——系统提示词（逐字节）、工具 schema、wire 编码、请求参数、stdout、退出码、
    会话 JSONL、文件系统终态。见 [tests/atom](tests/atom)。
 2. **Arena 对拍**。作为一等适配器接入 harness-arena，与真 pi 0.74.2 同场竞技。
@@ -35,8 +35,9 @@ Agent 的墙钟时间 99% 花在等模型上——换语言买不到速度，但
 3. **占用**。每道 arena 任务都用 `/usr/bin/time -v` 采集峰值 RSS 与墙钟。
    [docs/bench.md](docs/bench.md)。
 
-一处已记录的偏离：pi 按模型目录对 DeepSeek 发 `role: "developer"`；真 API 以 HTTP 422
-拒绝该角色，故 pi-rs 固定发 `system`。
+两处已记录的偏离：
+- pi v1.4.0 对 DeepSeek 直通模型已改发 `system`（旧版的 `developer` 角色会被真 API 422 拒绝），pi-rs 行为一致；
+- **同一次 `edit` 调用里出现两个相同 `oldText` 会让上游 pi 崩溃**（未处理异常 → 自动重试 → 失败尝试被 `ContextEditEntry` 从上下文切除）。pi-rs 返回优雅的 `edits[0] and edits[1] overlap …` 错误——严格更有用，原子套件钉死了我们的行为。
 
 ## 快速上手
 
@@ -113,8 +114,10 @@ bash tests/e2e_mock.sh
 （`-p`、`--mode json`、`--provider/--model/--api-key/--tools/--thinking/--session-dir/…`）、
 系统提示词、上下文文件发现、usage/成本记账——**以及交互式 TUI**：全屏转录视图
 （流式助手文本、内联工具行、工具输出折叠）、底部输入行带历史、Esc/Ctrl+C 中断、
-`/exit`。已用 tmux 程序化发键完成端到端验证。与 pi TUI 的差距：自动补全、模型
-切换器、主题、鼠标支持、图片渲染。
+`/exit`。已用 tmux 程序化发键完成端到端验证。v1.4.0 的 wire 层也已移植：分节系统
+提示词（`<tools>`/`<rules>`/`<docs>`/`<cwd>`）、strict 模式工具 schema、`max_tokens`
+参数、会话 `role:"system"` 分节条目。与 pi TUI 的差距：自动补全、模型切换器、主题、
+鼠标支持、图片渲染。
 
 **路线图**：extensions & skills 加载 · MCP 客户端 · compaction ·
 `--export` HTML · RPC 模式 · Anthropic 原生 API。（pi-durable 的事务化运行时与

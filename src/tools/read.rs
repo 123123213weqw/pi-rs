@@ -5,16 +5,17 @@ use super::truncate::{self, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use serde_json::{json, Value};
 use std::path::Path;
 
-pub const DESCRIPTION: &str = "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.";
+pub const DESCRIPTION: &str = "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.";
 
 pub static PARAMETERS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| json!({
     "type": "object",
-    "required": ["path"],
-        "properties": {
+    "additionalProperties": false,
+    "properties": {
         "path": { "type": "string", "description": "Path to the file to read (relative or absolute)" },
-        "offset": { "type": "number", "description": "Line number to start reading from (1-indexed)" },
-        "limit": { "type": "number", "description": "Maximum number of lines to read" }
-    }
+        "offset": { "anyOf": [ { "type": "number", "description": "Line number to start reading from (1-indexed)" }, { "type": "null" } ] },
+        "limit": { "anyOf": [ { "type": "number", "description": "Maximum number of lines to read" }, { "type": "null" } ] }
+    },
+    "required": ["path", "offset", "limit"],
 }));
 
 pub fn resolve_path(p: &str, cwd: &Path) -> std::path::PathBuf {

@@ -95,3 +95,27 @@ frontend 2/2、math 16/16、ops 4/4。唯一失手题两臂一致：`hell-01`
 结论：**功能完全一样**在 52 题 × 2 轮的正式口径下成立（102/104 对 102/104，
 points 相同，failures 相同）；token 分布同量级（pi-rs 输出偏多来自个别题
 多走了一轮重试，属模型随机性而非 harness 差异）。
+
+
+## v1.4.0 再对齐（2026-10-28）
+
+决定：不做 0.74.2 钉版，全面对齐上游 **v1.4.0**。方法不变——真 pi 1.4.0 与 pi-rs
+同打 mock 录制服务器，逐原子 diff。原子套件从 5 场景扩到 **9 场景 / 169 原子**
+（新增：read 续读/limit、edit 多块+错误路径、grep ignoreCase/literal、find 全路径
+glob、ls limit、bash 非零退出+超时+大输出截断边界）。
+
+据此移植的 1.4.0 差异：
+
+| 层 | 1.4.0 变化 |
+|---|---|
+| 系统提示词 | 分节 XML（preamble + `<tools>`/`<rules>`/`<docs>`/`<cwd>`）；删除日期行；project context 改 `<project_instructions path>` 包裹；新增 PI_* 环境变量规则；探索规则在有 grep/find/ls 时不再出现 |
+| 工具 schema | coding 四件套 strict:true（anyOf 可空 optionals、required 全量、additionalProperties:false）；grep/find/ls 保持普通风格 strict:false；read 描述 +bmp；bash 参数描述改 "Shell command to execute" |
+| 请求参数 | 去掉 `store`；`max_completion_tokens` → `max_tokens`（384000）；保留 `thinking:{type:enabled}` + `reasoning_effort:"high"`；角色回到 `system`（1.4.0 目录对 deepseek 不再标 developer） |
+| 会话 | 新增 `role:"system"` 条目携带命名分节；usage 增加 `reasoning` 字段；其余（header v3、model_change/thinking_level_change）不变 |
+| bash 工具 | 行计数语义：尾换行视为终止符而非一行（50000 vs 50001）；临时文件名 `pi-bash-<16hex>.log` |
+
+已知偏离（有意为之）：相同 `oldText` 重复出现在一次 edit 调用中会令上游 1.4.0
+未处理异常并触发自动重试+上下文切除；pi-rs 返回优雅的 overlap 错误。
+
+回归：mock E2E 3/3；tmux TUI E2E 保持绿；V100 真模型 algo-01 6.6s PASS、
+hard-03 25.9s PASS；追踪 PR #2 合并（UPSTREAM → v1.4.0，issue #1 关闭）。

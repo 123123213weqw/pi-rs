@@ -25,6 +25,9 @@ pub struct Usage {
     pub cache_read: u64,
     #[serde(rename = "cacheWrite")]
     pub cache_write: u64,
+    /// pi v1.4.0 emits this on session usage (0 unless the provider reports it).
+    #[serde(default)]
+    pub reasoning: u64,
     #[serde(rename = "totalTokens")]
     pub total_tokens: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -170,6 +173,7 @@ pub fn usage_from_parts(
         output,
         cache_read,
         cache_write,
+        reasoning: 0,
         total_tokens: input + output,
         cost,
     }

@@ -7,7 +7,7 @@ English ｜ [简体中文](README.zh-CN.md)
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
 
 > A behavioral clone of the [pi](https://github.com/earendil-works/pi) coding agent, rebuilt in Rust.
-> Not a rewrite with creative liberties — **85/85 behavior atoms verified identical**, task for task.
+> Not a rewrite with creative liberties — **169/169 behavior atoms verified identical against pi v1.4.0**, scenario by scenario.
 
 ![pi vs pi-rs](assets/comparison.png)
 
@@ -29,7 +29,7 @@ file to deploy, nothing to install. That's what pi-rs is for.
 
 Every claim above is reproducible. pi-rs is verified against real pi at three levels:
 
-1. **Behavior atoms (85/85 identical).** Both binaries run against the same scripted mock LLM; every
+1. **Behavior atoms (169/169 identical).** Both binaries run against the same scripted mock LLM; every
    request each one sends is recorded and diffed — system prompt (byte-exact), tool schemas, wire
    encoding, request params, stdout, exit codes, session JSONL, filesystem end-state. See
    [tests/atom](tests/atom).
@@ -38,8 +38,9 @@ Every claim above is reproducible. pi-rs is verified against real pi at three le
    *both* arms, the same way.
 3. **Occupancy.** `/usr/bin/time -v` peak RSS and wall clock on every arena task. [docs/bench.md](docs/bench.md).
 
-One documented divergence: pi sends `role: "developer"` to DeepSeek because its model catalog says
-so; the real API rejects it with HTTP 422, so pi-rs sends `system`.
+Two documented divergences:
+- pi v1.4.0 sends `role: "developer"` only when the catalog flags it; for DeepSeek passthrough models it now sends `system` — pi-rs matches.
+- **Identical `oldText` twice in one `edit` call crashes upstream pi** (unhandled exception → auto-retry → the failed attempt is excised from context via `ContextEditEntry`). pi-rs returns the graceful `edits[0] and edits[1] overlap …` error instead — strictly more useful, and the atom suite pins our behavior.
 
 ## Quick start
 
@@ -117,7 +118,9 @@ Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
 system prompt, context-file discovery, usage/cost accounting — **and the interactive TUI**:
 full-screen transcript (streaming assistant text, inline tool lines, collapsible tool output),
 bottom editor with input history, Esc/Ctrl+C abort, `/exit`. Verified end-to-end with
-scripted keystrokes in tmux. Gaps vs pi's TUI: autocomplete, model picker, themes,
+scripted keystrokes in tmux. The v1.4.0 wire is ported too: sectioned system prompt
+(`<tools>`/`<rules>`/`<docs>`/`<cwd>`), strict-mode tool schemas, `max_tokens` params,
+session `role:"system"` entry with named sections. Gaps vs pi's TUI: autocomplete, model picker, themes,
 mouse support, image rendering.
 
 **Roadmap**: extensions & skills loading · MCP client · compaction ·

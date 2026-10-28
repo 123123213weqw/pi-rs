@@ -91,7 +91,7 @@ fn passthrough_model(provider: &str, id: &str) -> Result<Model, String> {
         provider: provider.to_string(),
         base_url,
         context_window: 128_000,
-        max_tokens: 8_192,
+        max_tokens: 384_000,
         cost: CostRates { input: 0.0, output: 0.0, cache_read: 0.0, cache_write: 0.0 },
     })
 }
@@ -251,12 +251,15 @@ fn to_wire_messages(messages: &[Message], system: &str) -> Vec<Value> {
 }
 
 fn tool_schema_json(tools: &[crate::tools::ToolDef]) -> Vec<Value> {
+    // 1.4.0 wire (captured): the four coding tools carry strict:true with
+    // strict-mode schemas; grep/find/ls keep strict:false and plain schemas.
     tools
         .iter()
         .map(|t| {
+            let strict = matches!(t.name, "read" | "bash" | "edit" | "write");
             json!({
                 "type": "function",
-                "function": { "name": t.name, "description": t.description, "parameters": t.parameters, "strict": false }
+                "function": { "name": t.name, "description": t.description, "parameters": t.parameters, "strict": strict }
             })
         })
         .collect()
@@ -291,8 +294,7 @@ pub fn stream_chat_cb(
         "messages": to_wire_messages(messages, system),
         "stream": true,
         "stream_options": { "include_usage": true },
-        "store": false,
-        "max_completion_tokens": model.max_tokens,
+        "max_tokens": model.max_tokens,
         "tools": tool_schema_json(tools),
     });
     // pi-ai deepseek compat: reasoning_effort + thinking decoration (chat
@@ -471,7 +473,7 @@ pub fn stream_chat_cb(
             let total_out = output + reasoning;
             let cost = usage_cost(
                 model,
-                &Usage { input, output: total_out, cache_read, cache_write: 0, total_tokens: 0, cost: None },
+                &Usage { input, output: total_out, cache_read, cache_write: 0, reasoning: 0, total_tokens: 0, cost: None },
             );
             // pi: totalTokens = raw prompt_tokens + completion_tokens (cache not deducted)
             crate::messages::usage_from_parts(input, total_out, cache_read, 0, Some(cost))

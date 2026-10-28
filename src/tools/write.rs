@@ -13,6 +13,7 @@ pub static PARAMETERS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| 
         "path": { "type": "string", "description": "Path to the file to write (relative or absolute)" },
         "content": { "type": "string", "description": "Content to write to the file" }
     },
+    "additionalProperties": false,
     "required": ["path", "content"]
 }));
 

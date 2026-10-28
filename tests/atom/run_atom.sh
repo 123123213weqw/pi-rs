@@ -13,9 +13,12 @@ PIRS_BIN="${PIRS_BIN:-$HOME/pi-rs}"
 set -a; source "$HOME/.config/xharness-bench/credentials.env"; set +a
 
 # seed files copied into every arm workdir before the run
-mkdir -p /tmp/atom-seed
+mkdir -p /tmp/atom-seed/sub
 printf 'line one\nline two\nline three\n' > /tmp/atom-seed/sample.txt
 printf 'needle_here\n' > /tmp/atom-seed/needle.txt
+printf 'needle_here\nunrelated\nNEEDLE upper\n' > /tmp/atom-seed/sub/hay.txt
+printf 'l1\nl2\nl3\nl4\nl5\n' > /tmp/atom-seed/big.txt
+printf 'aaa\nbbb\nccc\n' > /tmp/atom-seed/multi.txt
 mkdir -p /tmp/atom-seed/sub
 printf 'needle_here\nunrelated\n' > /tmp/atom-seed/sub/hay.txt
 
@@ -119,3 +122,43 @@ atom_case s3 /tmp/atom-s3.json
 TOOLS_FLAG=""
 atom_case s4 /tmp/atom-s4.json
 atom_case s5 /tmp/atom-s5.json
+
+cat > /tmp/atom-s6.json <<'JSONEOF'
+[
+ {"tool_calls":[{"id":"r1","name":"read","arguments":{"path":"big.txt"}}]},
+ {"tool_calls":[{"id":"r2","name":"read","arguments":{"path":"big.txt","offset":4}}]},
+ {"tool_calls":[{"id":"r3","name":"read","arguments":{"path":"big.txt","offset":2,"limit":2}}]},
+ {"echo_tool_results": true}
+]
+JSONEOF
+
+cat > /tmp/atom-s7.json <<'JSONEOF'
+[
+ {"tool_calls":[{"id":"e1","name":"edit","arguments":{"path":"multi.txt","edits":[{"oldText":"aaa","newText":"AAA"},{"oldText":"ccc","newText":"CCC"}]}}]},
+ {"tool_calls":[{"id":"e2","name":"edit","arguments":{"path":"multi.txt","edits":[{"oldText":"AAA\\nbbb","newText":"AAA\\nbbb (fuzzy-ok)"}]}}]},
+ {"tool_calls":[{"id":"e3","name":"edit","arguments":{"path":"multi.txt","edits":[{"oldText":"AAA\\nbbb (fuzzy-ok)","newText":"XXX"},{"oldText":"bbb (fuzzy-ok)","newText":"YYY"}]}}]},
+ {"echo_tool_results": true}
+]
+JSONEOF
+
+cat > /tmp/atom-s8.json <<'JSONEOF'
+[
+ {"tool_calls":[{"id":"g1","name":"grep","arguments":{"pattern":"NEEDLE","path":"sub","ignoreCase":true}}]},
+ {"tool_calls":[{"id":"g2","name":"grep","arguments":{"pattern":"needle.here","path":"sub","literal":true}}]},
+ {"tool_calls":[{"id":"f1","name":"find","arguments":{"pattern":"sub/**/*.txt"}}]},
+ {"tool_calls":[{"id":"l1","name":"ls","arguments":{"path":"sub","limit":1}}]},
+ {"echo_tool_results": true}
+]
+JSONEOF
+
+cat > /tmp/atom-s9.json <<'JSONEOF'
+[
+ {"tool_calls":[{"id":"b1","name":"bash","arguments":{"command":"printf out1; echo err1 1>&2; exit 7"}}]},
+ {"tool_calls":[{"id":"b2","name":"bash","arguments":{"command":"yes | head -c 100000","timeout":2}}]},
+ {"echo_tool_results": true}
+]
+JSONEOF
+atom_case s6 /tmp/atom-s6.json
+atom_case s7 /tmp/atom-s7.json
+atom_case s8 /tmp/atom-s8.json
+atom_case s9 /tmp/atom-s9.json

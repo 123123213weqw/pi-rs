@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-pub const VALID_THINKING_LEVELS: [&str; 6] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+pub const VALID_THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 #[derive(Debug, Default, Clone)]
 pub struct Args {

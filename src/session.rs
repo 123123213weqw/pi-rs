@@ -77,6 +77,25 @@ impl Session {
         Ok(Session { id, file, writer, last_entry_id: None, persist })
     }
 
+    /// pi v1.4.0 stores the system prompt as a `role:"system"` message entry
+    /// carrying named sections (see system_prompt::build_sections).
+    pub fn append_system_message(&mut self, sections: serde_json::Value) {
+        let id = short_id();
+        let entry = json!({
+            "type": "message",
+            "id": id,
+            "parentId": self.last_entry_id,
+            "timestamp": iso_now(),
+            "message": {
+                "role": "system",
+                "content": "",
+                "sections": sections,
+            },
+        });
+        self.append_raw(entry);
+        self.last_entry_id = Some(id);
+    }
+
     /// pi writes model_change + thinking_level_change right after the header.
     pub fn append_setup_entries(&mut self, provider: &str, model_id: &str, thinking_level: &str) {
         let mc = json!({
