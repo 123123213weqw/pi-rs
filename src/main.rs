@@ -15,9 +15,11 @@ mod provider;
 mod session;
 mod system_prompt;
 mod tools;
+mod tui;
 mod util;
 
 use args::Args;
+use std::sync::{Arc, Mutex};
 use messages::Message;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -70,11 +72,11 @@ fn main() -> ExitCode {
         }
     };
 
-    // Prompt assembly: messages joined; @file args inlined.
-    if a.messages.is_empty() && a.file_args.is_empty() && !a.continue_ {
-        eprintln!("No prompt given. Usage: pi -p \"prompt\"  (interactive TUI not built in pi-rs yet)");
-        return ExitCode::from(1);
-    }
+    // Interactive TUI: TTY stdin, no -p, no --mode json (pi: plain `pi` or
+    // `pi "initial message"` enters interactive mode).
+    let json_mode_flag = a.mode.as_deref() == Some("json") || a.mode.as_deref() == Some("rpc");
+    let interactive = std::io::stdin().is_terminal() && !a.print && !json_mode_flag;
+
     let user_text = match agent::build_initial_message(&a.messages, &a.file_args) {
         Ok(t) => t,
         Err(e) => {
@@ -82,6 +84,10 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if !interactive && a.messages.is_empty() && a.file_args.is_empty() && !a.continue_ {
+        eprintln!("No prompt given. Usage: pi -p \"prompt\"  (or run pi bare for interactive TUI)");
+        return ExitCode::from(1);
+    }
 
     // Tools: default coding tools; --tools allowlist; --no-tools disables all.
     let selected: Vec<String> = if a.no_tools || a.no_builtin_tools {
@@ -153,9 +159,20 @@ fn main() -> ExitCode {
         }
     }
 
+    if interactive {
+        let initial = if a.messages.is_empty() { None } else { Some(user_text.clone()) };
+        let handle = tui::TuiHandle { session: Arc::new(Mutex::new(session)), cfg, initial_message: initial };
+        return match tui::run(handle) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::from(1)
+            }
+        };
+    }
+
     let json_mode = a.mode.as_deref() == Some("json");
-    if json_mode {
-        // pi emits the session header first in json mode.
+    if json_mode {        // pi emits the session header first in json mode.
         println!(
             "{}",
             serde_json::json!({

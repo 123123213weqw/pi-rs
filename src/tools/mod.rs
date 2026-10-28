@@ -34,6 +34,7 @@ pub fn snippet_for(name: &str) -> Option<&'static str> {
     }
 }
 
+#[derive(Clone)]
 pub struct ToolDef {
     pub name: &'static str,
     pub description: &'static str,

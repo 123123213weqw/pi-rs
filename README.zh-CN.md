@@ -42,6 +42,7 @@ Agent 的墙钟时间 99% 花在等模型上——换语言买不到速度，但
 
 ```bash
 cargo build --release          # → target/release/pi，2.5 MB 单二进制
+./target/release/pi "refactor src/foo.rs"               # 交互式 TUI（带初始消息）
 ./target/release/pi -p "refactor src/foo.rs"            # 一次性 print 模式
 ./target/release/pi --mode json -p "list todos"         # JSON 事件流
 ./target/release/pi -t read,grep,find,ls -p "review"    # 只读工具集
@@ -110,9 +111,12 @@ bash tests/e2e_mock.sh
 
 **已对齐**：headless 核心——agent 循环、7 工具、会话格式、CLI 面
 （`-p`、`--mode json`、`--provider/--model/--api-key/--tools/--thinking/--session-dir/…`）、
-系统提示词、上下文文件发现、usage/成本记账。
+系统提示词、上下文文件发现、usage/成本记账——**以及交互式 TUI**：全屏转录视图
+（流式助手文本、内联工具行、工具输出折叠）、底部输入行带历史、Esc/Ctrl+C 中断、
+`/exit`。已用 tmux 程序化发键完成端到端验证。与 pi TUI 的差距：自动补全、模型
+切换器、主题、鼠标支持、图片渲染。
 
-**路线图**：交互式 TUI · extensions & skills 加载 · MCP 客户端 · compaction ·
+**路线图**：extensions & skills 加载 · MCP 客户端 · compaction ·
 `--export` HTML · RPC 模式 · Anthropic 原生 API。（pi-durable 的事务化运行时与
 chord 插件宿主暂不在范围内。）
 

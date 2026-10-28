@@ -3,6 +3,8 @@
 //! toolResult messages → repeat until no tool calls / error / abort.
 
 use crate::messages::{ContentBlock, Message, StopReason, ToolResultMessage, UserMessage, AssistantMessage};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use crate::provider;
 use crate::session::Session;
 use crate::tools;
@@ -23,6 +25,16 @@ pub enum Outcome {
     Failed(String),
 }
 
+/// Events the interactive TUI consumes while a prompt runs.
+#[derive(Debug, Clone)]
+pub enum UiEvent {
+    AssistantDelta(String),
+    ToolCall(String),
+    ToolResult { name: String, ok: bool, text: String },
+    Done(Box<AssistantMessage>),
+    Failed(String),
+}
+
 /// Run one prompt to completion. `messages` is the prior conversation
 /// (user/assistant/toolResult); the new user message is appended by the caller
 /// before invoking this. Returns the final assistant message.
@@ -31,6 +43,19 @@ pub fn run_prompt(
     messages: &mut Vec<Message>,
     session: &mut Session,
     user_text: &str,
+) -> Outcome {
+    run_prompt_cb(cfg, messages, session, user_text, Arc::new(AtomicBool::new(false)), &mut |_| {})
+}
+
+/// Same as `run_prompt`, forwarding UI events and honoring an abort flag
+/// (checked between provider reads and before each tool execution).
+pub fn run_prompt_cb(
+    cfg: &AgentConfig,
+    messages: &mut Vec<Message>,
+    session: &mut Session,
+    user_text: &str,
+    abort: Arc<AtomicBool>,
+    on_event: &mut dyn FnMut(UiEvent),
 ) -> Outcome {
     let user = Message::User(UserMessage {
         role: "user".into(),
@@ -41,7 +66,28 @@ pub fn run_prompt(
     messages.push(user);
 
     loop {
-        let outcome = match provider::stream_chat(&cfg.model, &cfg.api_key, &cfg.system_prompt, messages, &cfg.tools) {
+        let aborted = abort.load(Ordering::Relaxed);
+        let outcome = if aborted {
+            Ok(provider::StreamOutcome {
+                content: vec![],
+                stop_reason: StopReason::Aborted,
+                usage: Default::default(),
+                error_message: None,
+            })
+        } else {
+            let abort2 = abort.clone();
+            provider::stream_chat_cb(&cfg.model, &cfg.api_key, &cfg.system_prompt, messages, &cfg.tools, &mut |d| {
+                if abort2.load(Ordering::Relaxed) {
+                    return;
+                }
+                on_event(UiEvent::AssistantDelta(d.to_string()));
+            })
+            .map_err(|e| {
+                on_event(UiEvent::Failed(e.clone()));
+                e
+            })
+        };
+        let outcome = match outcome {
             Ok(o) => o,
             Err(e) => return Outcome::Failed(e),
         };
@@ -75,12 +121,33 @@ pub fn run_prompt(
             .collect();
 
         if tool_calls.is_empty() {
+            on_event(UiEvent::Done(Box::new(assistant.clone())));
             return Outcome::Completed(assistant);
         }
 
         // Sequential execution (matches pi's `toolExecution: "sequential"` and
         // the built-in tools' file-mutation queue semantics).
         for (id, name, args) in tool_calls {
+            if abort.load(Ordering::Relaxed) {
+                let tr = ToolResultMessage {
+                    role: "toolResult".into(),
+                    tool_call_id: id,
+                    tool_name: name.clone(),
+                    content: vec![crate::messages::text_content("Operation aborted")],
+                    is_error: true,
+                    timestamp: crate::util::now_ms(),
+                };
+                session.append_message(&Message::ToolResult(tr.clone()));
+                messages.push(Message::ToolResult(tr));
+                continue;
+            }
+            on_event(UiEvent::ToolCall(match &args {
+                Value::Object(m) => {
+                    let c = m.get("command").or_else(|| m.get("path")).and_then(|v| v.as_str()).unwrap_or("");
+                    if c.is_empty() { name.clone() } else { format!("{name} {c}") }
+                }
+                _ => name.clone(),
+            }));
             if cfg.verbose {
                 eprintln!("[tool] {name} {args}");
             }
@@ -97,8 +164,14 @@ pub fn run_prompt(
                 eprintln!("[tool] {} done in {:?}", name, started.elapsed());
             }
             let (content, is_error) = match result {
-                Ok(text) => (vec![crate::messages::text_content(text)], false),
-                Err(e) => (vec![crate::messages::text_content(e)], true),
+                Ok(text) => {
+                    on_event(UiEvent::ToolResult { name: name.clone(), ok: true, text: text.clone() });
+                    (vec![crate::messages::text_content(text)], false)
+                }
+                Err(e) => {
+                    on_event(UiEvent::ToolResult { name: name.clone(), ok: false, text: e.clone() });
+                    (vec![crate::messages::text_content(e)], true)
+                }
             };
             let tr = ToolResultMessage {
                 role: "toolResult".into(),

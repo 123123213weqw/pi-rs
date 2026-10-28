@@ -6,6 +6,8 @@ description = "Rust port of the pi coding agent (parity with @earendil-works/pi-
 license = "MIT"
 
 [dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 ureq = { version = "2", default-features = false, features = ["tls", "gzip"] }

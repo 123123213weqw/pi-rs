@@ -45,6 +45,7 @@ so; the real API rejects it with HTTP 422, so pi-rs sends `system`.
 
 ```bash
 cargo build --release          # → target/release/pi, one 2.5 MB binary
+./target/release/pi "refactor src/foo.rs"               # interactive TUI (initial msg)
 ./target/release/pi -p "refactor src/foo.rs"            # one-shot print mode
 ./target/release/pi --mode json -p "list todos"         # JSON event stream
 ./target/release/pi -t read,grep,find,ls -p "review"    # read-only toolset
@@ -113,9 +114,13 @@ Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
 
 **Aligned**: the headless core — agent loop, 7 tools, session format, CLI surface
 (`-p`, `--mode json`, `--provider/--model/--api-key/--tools/--thinking/--session-dir/…`),
-system prompt, context-file discovery, usage/cost accounting.
+system prompt, context-file discovery, usage/cost accounting — **and the interactive TUI**:
+full-screen transcript (streaming assistant text, inline tool lines, collapsible tool output),
+bottom editor with input history, Esc/Ctrl+C abort, `/exit`. Verified end-to-end with
+scripted keystrokes in tmux. Gaps vs pi's TUI: autocomplete, model picker, themes,
+mouse support, image rendering.
 
-**Roadmap**: interactive TUI · extensions & skills loading · MCP client · compaction ·
+**Roadmap**: extensions & skills loading · MCP client · compaction ·
 `--export` HTML · RPC mode · Anthropic-native API. (pi-durable's transactional runtime and
 chord plugin host are out of scope for now.)
 

@@ -271,6 +271,19 @@ pub fn stream_chat(
     messages: &[Message],
     tools: &[crate::tools::ToolDef],
 ) -> Result<StreamOutcome, String> {
+    stream_chat_cb(model, api_key, system, messages, tools, &mut |_| {})
+}
+
+/// Same as `stream_chat`, forwarding assistant text deltas as they arrive
+/// (interactive mode). `on_text` receives incremental content chunks.
+pub fn stream_chat_cb(
+    model: &Model,
+    api_key: &str,
+    system: &str,
+    messages: &[Message],
+    tools: &[crate::tools::ToolDef],
+    on_text: &mut dyn FnMut(&str),
+) -> Result<StreamOutcome, String> {
     let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
     let thinking_level = std::env::var("PI_THINKING_LEVEL").unwrap_or_else(|_| "high".into());
     let mut body = json!({
@@ -362,6 +375,7 @@ pub fn stream_chat(
                 if let Some(c) = d.get("content") {
                     if let Some(s) = c.as_str() {
                         text_acc.push_str(s);
+                        on_text(s);
                     }
                 }
                 if let Some(tcs) = d.get("tool_calls").and_then(|x| x.as_array()) {
