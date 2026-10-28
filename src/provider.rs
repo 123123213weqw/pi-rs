@@ -277,15 +277,21 @@ pub fn stream_chat(
     stream_chat_cb(model, api_key, system, messages, tools, &mut |_| {})
 }
 
-/// Same as `stream_chat`, forwarding assistant text deltas as they arrive
-/// (interactive mode). `on_text` receives incremental content chunks.
+/// Incremental stream content forwarded to the interactive UI.
+pub enum StreamDelta<'a> {
+    Text(&'a str),
+    Thinking(&'a str),
+}
+
+/// Same as `stream_chat`, forwarding assistant text/thinking deltas as they
+/// arrive (interactive mode).
 pub fn stream_chat_cb(
     model: &Model,
     api_key: &str,
     system: &str,
     messages: &[Message],
     tools: &[crate::tools::ToolDef],
-    on_text: &mut dyn FnMut(&str),
+    on_delta: &mut dyn FnMut(StreamDelta),
 ) -> Result<StreamOutcome, String> {
     let url = format!("{}/chat/completions", model.base_url.trim_end_matches('/'));
     let thinking_level = std::env::var("PI_THINKING_LEVEL").unwrap_or_else(|_| "high".into());
@@ -373,11 +379,14 @@ pub fn stream_chat_cb(
             if let Some(d) = delta {
                 if let Some(rc) = d.get("reasoning_content").and_then(|x| x.as_str()) {
                     thinking_acc.push_str(rc);
+                    on_delta(StreamDelta::Thinking(rc));
                 }
                 if let Some(c) = d.get("content") {
                     if let Some(s) = c.as_str() {
-                        text_acc.push_str(s);
-                        on_text(s);
+                        if !s.is_empty() {
+                            text_acc.push_str(s);
+                            on_delta(StreamDelta::Text(s));
+                        }
                     }
                 }
                 if let Some(tcs) = d.get("tool_calls").and_then(|x| x.as_array()) {

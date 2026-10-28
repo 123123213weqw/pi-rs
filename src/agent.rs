@@ -28,6 +28,7 @@ pub enum Outcome {
 /// Events the interactive TUI consumes while a prompt runs.
 #[derive(Debug, Clone)]
 pub enum UiEvent {
+    ThinkingDelta(String),
     AssistantDelta(String),
     ToolCall(String),
     ToolResult { name: String, ok: bool, text: String },
@@ -80,7 +81,10 @@ pub fn run_prompt_cb(
                 if abort2.load(Ordering::Relaxed) {
                     return;
                 }
-                on_event(UiEvent::AssistantDelta(d.to_string()));
+                match d {
+                    provider::StreamDelta::Text(t) => on_event(UiEvent::AssistantDelta(t.to_string())),
+                    provider::StreamDelta::Thinking(t) => on_event(UiEvent::ThinkingDelta(t.to_string())),
+                }
             })
             .map_err(|e| {
                 on_event(UiEvent::Failed(e.clone()));

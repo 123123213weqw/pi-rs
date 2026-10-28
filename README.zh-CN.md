@@ -114,7 +114,8 @@ bash tests/e2e_mock.sh
 （`-p`、`--mode json`、`--provider/--model/--api-key/--tools/--thinking/--session-dir/…`）、
 系统提示词、上下文文件发现、usage/成本记账——**以及交互式 TUI**：全屏转录视图
 （流式助手文本、内联工具行、工具输出折叠）、底部输入行带历史、Esc/Ctrl+C 中断、
-`/exit`。已用 tmux 程序化发键完成端到端验证。v1.4.0 的 wire 层也已移植：分节系统
+`/exit`——并支持**流式 CoT**（thinking 增量实时以暗灰斜体渲染）与 `Ctrl+O` 展开工具
+输出。已用 tmux 程序化发键完成端到端验证。v1.4.0 的 wire 层也已移植：分节系统
 提示词（`<tools>`/`<rules>`/`<docs>`/`<cwd>`）、strict 模式工具 schema、`max_tokens`
 参数、会话 `role:"system"` 分节条目。与 pi TUI 的差距：自动补全、模型切换器、主题、
 鼠标支持、图片渲染。

@@ -117,8 +117,9 @@ Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
 (`-p`, `--mode json`, `--provider/--model/--api-key/--tools/--thinking/--session-dir/…`),
 system prompt, context-file discovery, usage/cost accounting — **and the interactive TUI**:
 full-screen transcript (streaming assistant text, inline tool lines, collapsible tool output),
-bottom editor with input history, Esc/Ctrl+C abort, `/exit`. Verified end-to-end with
-scripted keystrokes in tmux. The v1.4.0 wire is ported too: sectioned system prompt
+bottom editor with input history, Esc/Ctrl+C abort, `/exit` — plus **streaming CoT**
+(thinking deltas render dim/italic as they arrive) and `Ctrl+O` to expand tool output.
+Verified end-to-end with scripted keystrokes in tmux. The v1.4.0 wire is ported too: sectioned system prompt
 (`<tools>`/`<rules>`/`<docs>`/`<cwd>`), strict-mode tool schemas, `max_tokens` params,
 session `role:"system"` entry with named sections. Gaps vs pi's TUI: autocomplete, model picker, themes,
 mouse support, image rendering.

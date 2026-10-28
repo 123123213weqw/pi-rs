@@ -24,6 +24,8 @@ use std::time::Duration;
 /// One rendered transcript block.
 enum ChatBlock {
     User(String),
+    /// Reasoning (CoT), live while streaming.
+    Thinking { text: String, live: bool },
     /// Assistant text, still streaming when `live` is true.
     Assistant { text: String, live: bool },
     ToolCall(String),
@@ -103,6 +105,17 @@ fn render_block(b: &ChatBlock, area_width: u16) -> Vec<Line<'static>> {
 
     match b {
         ChatBlock::User(t) => wrap("❯ ", t, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        ChatBlock::Thinking { text, live } => {
+            let dim = Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC);
+            let mut lines = wrap("◇ ", text, dim);
+            if *live {
+                lines.push(Line::from(Span::styled(
+                    "  · thinking…",
+                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                )));
+            }
+            lines
+        }
         ChatBlock::Assistant { text, live } => {
             let mut lines = wrap("◆ ", text, Style::default().fg(Color::Gray));
             if *live {
@@ -246,11 +259,28 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
         // drain UI events from any running worker
         while let Ok(ev) = rx.try_recv() {
             match ev {
-                UiEvent::AssistantDelta(d) => match app.blocks.last_mut() {
-                    Some(ChatBlock::Assistant { text, .. }) => text.push_str(&d),
-                    _ => app.blocks.push(ChatBlock::Assistant { text: d, live: true }),
+                UiEvent::ThinkingDelta(d) => match app.blocks.last_mut() {
+                    Some(ChatBlock::Thinking { text, .. }) => text.push_str(&d),
+                    _ => {
+                        if let Some(ChatBlock::Assistant { live, .. }) = app.blocks.last_mut() {
+                            *live = false;
+                        }
+                        app.blocks.push(ChatBlock::Thinking { text: d, live: true });
+                    }
                 },
+                UiEvent::AssistantDelta(d) => {
+                    if let Some(ChatBlock::Thinking { live, .. }) = app.blocks.last_mut() {
+                        *live = false;
+                    }
+                    match app.blocks.last_mut() {
+                        Some(ChatBlock::Assistant { text, .. }) => text.push_str(&d),
+                        _ => app.blocks.push(ChatBlock::Assistant { text: d, live: true }),
+                    }
+                }
                 UiEvent::ToolCall(desc) => {
+                    if let Some(ChatBlock::Thinking { live, .. }) = app.blocks.last_mut() {
+                        *live = false;
+                    }
                     if let Some(ChatBlock::Assistant { live, .. }) = app.blocks.last_mut() {
                         *live = false;
                     }
@@ -260,6 +290,9 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                     app.blocks.push(ChatBlock::ToolResult { name, ok, text, expanded: false });
                 }
                 UiEvent::Done(_) | UiEvent::Failed(_) => {
+                    if let Some(ChatBlock::Thinking { live, .. }) = app.blocks.last_mut() {
+                        *live = false;
+                    }
                     if let Some(ChatBlock::Assistant { live, .. }) = app.blocks.last_mut() {
                         *live = false;
                     }
@@ -292,6 +325,12 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                         } else {
                             break;
                         }
+                    } else if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                        for b in app.blocks.iter_mut() {
+                            if let ChatBlock::ToolResult { expanded, .. } = b {
+                                *expanded = !*expanded;
+                            }
+                        }
                     } else if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) && !app.generating {
                         break;
                     } else if !app.generating {
@@ -312,7 +351,6 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                                 app.scroll_bottom();
                                 app.generating = true;
                                 abort.store(false, Ordering::Relaxed);
-                                app.blocks.push(ChatBlock::Assistant { text: String::new(), live: true });
                                 let cfg2 = AgentConfig {
                                     model: cfg.model.clone(),
                                     api_key: cfg.api_key.clone(),
@@ -333,21 +371,12 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                                 worker = Some(std::thread::spawn(move || {
                                     let mut hist = hist;
                                     let mut sess = sess.lock().unwrap();
-                                    let mut events: Vec<UiEvent> = Vec::new();
-                                    let _result = agent::run_prompt_cb(
+                                    // forward every event in emission order (mpsc preserves it)
+                                    let _ = agent::run_prompt_cb(
                                         &cfg2, &mut hist, &mut sess, &user_text, abort2, &mut |ev| {
-                                            // forward deltas live; batch the rest for ordering
-                                            match &ev {
-                                                UiEvent::AssistantDelta(_) => {
-                                                    let _ = tx2.send(ev);
-                                                }
-                                                other => events.push(other.clone()),
-                                            }
+                                            let _ = tx2.send(ev);
                                         },
                                     );
-                                    for ev in events {
-                                        let _ = tx2.send(ev);
-                                    }
                                     let _ = htx.send(hist);
                                 }));
                                 history_msgs.clear(); // rebuilt from hist_rx after join
