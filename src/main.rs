@@ -61,13 +61,16 @@ fn main() -> ExitCode {
             let env_var = provider::env_key_for_provider(&model.provider).unwrap_or("OPENAI_API_KEY");
             match std::env::var(env_var) {
                 Ok(k) if !k.is_empty() => k,
-                _ => {
+                _ => match key_from_credentials_file(env_var) {
+                    Some(k) => k,
+                    None => {
                     eprintln!(
                         "No API key for provider {}. Set {} or use --api-key.",
                         model.provider, env_var
                     );
                     return ExitCode::from(1);
-                }
+                    }
+                },
             }
         }
     };
@@ -218,6 +221,29 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// Credential fallback matching arena/providers.py: read KEY=value pairs from
+/// ~/.config/xharness-bench/credentials.env (V100 convention).
+fn key_from_credentials_file(env_var: &str) -> Option<String> {
+    let f = session::home_dir()
+        .join(".config")
+        .join("xharness-bench")
+        .join("credentials.env");
+    let text = std::fs::read_to_string(f).ok()?;
+    for line in text.lines() {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        if let Some((k, v)) = line.split_once('=') {
+            if k.trim() == env_var {
+                let v = v.trim().trim_matches(['"', '\'']);
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 fn session_dir_default(cwd: &Path) -> PathBuf {
