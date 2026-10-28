@@ -1,5 +1,7 @@
 # pi-rs
 
+English ｜ [简体中文](README.zh-CN.md)
+
 [![CI](https://github.com/123123213weqw/pi-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/123123213weqw/pi-rs/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-4cc38a)](LICENSE)
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
