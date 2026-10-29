@@ -17,9 +17,10 @@ rows = [
     ("Install size", "197 MB", "2.5 MB", 197, 2.5, "MB  (lower is better)"),
     ("Cold start", "910 ms", "2 ms", 910, 2, "ms  (lower is better)"),
     ("Concurrent agents in 16 GB", "~88", "~455", 88, 455, "sessions  (higher is better)"),
+    ("Isolated container, real tasks", "149–155 MB", "24 MB", 152, 24, "peak RSS  (lower is better)"),
 ]
 
-fig, ax = plt.subplots(figsize=(10, 5.2), dpi=160)
+fig, ax = plt.subplots(figsize=(10, 5.9), dpi=160)
 fig.patch.set_facecolor(DARK)
 ax.set_facecolor(DARK)
 
@@ -46,9 +47,9 @@ ax.set_ylim(-0.7, len(rows) + 0.9)
 ax.axis("off")
 
 ty = len(rows) - 0.2
-ax.text(0.02, ty + 0.35, "pi-rs", fontsize=20, color=RS_C, fontweight="bold", family="monospace")
-ax.text(0.16, ty + 0.35, "— same behavior, less baggage", fontsize=13, color=FG, family="monospace")
-ax.text(0.02, ty, "behavioral clone of pi 0.74.2:  85/85 behavior atoms identical  ·  arena 102/104 vs 102/104 (same failures)",
+ax.text(0.02, ty + 0.5, "pi-rs", fontsize=20, color=RS_C, fontweight="bold", family="monospace")
+ax.text(0.16, ty + 0.5, "— same behavior, less baggage", fontsize=13, color=FG, family="monospace")
+ax.text(0.02, ty + 0.08, "behavioral clone of pi v1.4.0:  169/169 behavior atoms identical  ·  arena 102/104 vs 102/104 (same failures)",
         fontsize=9, color=MUTED, family="monospace")
 
 out = os.path.join(os.path.dirname(__file__), "comparison.png")
