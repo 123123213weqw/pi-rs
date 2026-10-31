@@ -117,7 +117,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(input: I) -> Args {
                 r.thinking = Some(level);
             } else {
                 r.diagnostics.push((
-                    "warning".into(),
+                    "error".into(),
                     format!(
                         "Invalid thinking level \"{level}\". Valid values: {}",
                         VALID_THINKING_LEVELS.join(", ")
@@ -229,7 +229,7 @@ pub fn print_help() {
   --no-tools, -nt                Disable all tools by default (built-in and extension)
   --no-builtin-tools, -nbt       Disable built-in tools by default but keep extension/custom tools enabled
   --tools, -t <tools>            Comma-separated allowlist of tool names to enable
-  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh
+  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max
   --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading
   --list-models [search]         List available models (with optional fuzzy search)
   --verbose                      Force verbose startup (overrides quietStartup setting)
