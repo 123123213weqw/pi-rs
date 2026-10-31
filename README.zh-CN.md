@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
 
 > [pi](https://github.com/earendil-works/pi) 编码代理的**行为克隆版**，用 Rust 重写。
-> 不是随手重造——**169/169 行为原子对 pi v1.4.0 逐一验证一致**，场景对场景打平。
+> 不是随手重造——**186/186 行为原子对 pi main@35dfa7573（v1.4.0 + 221 提交）逐一验证一致**，场景对场景打平。
 
 | | pi 0.74.2（需 Node ≥ 22.19） | **pi-rs** |
 |---|---|---|
@@ -27,7 +27,7 @@ Agent 的墙钟时间 99% 花在等模型上——换语言买不到速度，但
 
 上面每个数字都可复现。pi-rs 对齐真 pi 分三层验证：
 
-1. **行为原子（169/169 一致）**。两个二进制打同一个脚本化 mock LLM，各自发出的**每个请求全部落盘**，
+1. **行为原子（186/186 一致）**。两个二进制打同一个脚本化 mock LLM，各自发出的**每个请求全部落盘**，
    逐原子 diff——系统提示词（逐字节）、工具 schema、wire 编码、请求参数、stdout、退出码、
    会话 JSONL、文件系统终态。见 [tests/atom](tests/atom)。
 2. **Arena 对拍**。作为一等适配器接入 harness-arena，与真 pi 0.74.2 同场竞技。
@@ -95,8 +95,9 @@ arena 式记账读两个 harness 无需改一行。
 ## 复现结论
 
 ```bash
-# 行为原子（需同一台机器装好 pi 0.74.2 + pi-rs，无需 API key）
-bash tests/atom/run_atom.sh                     # → 85/85 原子一致
+# 行为原子（需同一台机器装好钉版 UPSTREAM 指向的真 pi + pi-rs，无需 API key；
+# 可用 PI_BIN / PIRS_BIN 覆盖二进制路径）
+bash tests/atom/run_atom.sh                     # → 186/186 原子一致
 
 # 真模型上的占用 + 任务对拍
 bash tests/parity_v100.sh <tasks-dir> pirs <task-ids>

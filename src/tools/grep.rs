@@ -162,10 +162,10 @@ pub fn run(
     let mut lines_truncated = false;
 
     let file_lines = |p: &Path| -> Vec<String> {
+        // Upstream (post-v1.4.0) only normalizes CRLF; a lone CR is no longer a line break.
         std::fs::read_to_string(p)
             .unwrap_or_default()
             .replace("\r\n", "\n")
-            .replace('\r', "\n")
             .split('\n')
             .map(|s| s.to_string())
             .collect()

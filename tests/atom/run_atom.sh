@@ -21,6 +21,8 @@ printf 'l1\nl2\nl3\nl4\nl5\n' > /tmp/atom-seed/big.txt
 printf 'aaa\nbbb\nccc\n' > /tmp/atom-seed/multi.txt
 mkdir -p /tmp/atom-seed/sub
 printf 'needle_here\nunrelated\n' > /tmp/atom-seed/sub/hay.txt
+# s10: lone \r must NOT act as a line break (upstream post-v1.4.0 getFileLines change)
+printf 'alpha\rcr needle here\rbeta\ngamma\nmore needle\ntail\n' > /tmp/atom-seed/cr.txt
 
 run_arm () {
   local arm="$1" scenario="$2" work="$3" rec="$4" port="$5" extra="$6"
@@ -158,7 +160,18 @@ cat > /tmp/atom-s9.json <<'JSONEOF'
  {"echo_tool_results": true}
 ]
 JSONEOF
+
+cat > /tmp/atom-s10.json <<'JSONEOF'
+[
+ {"tool_calls":[{"id":"g1","name":"grep","arguments":{"pattern":"needle","path":"cr.txt","context":2}}]},
+ {"tool_calls":[{"id":"g2","name":"grep","arguments":{"pattern":"needle","path":"cr.txt"}}]},
+ {"echo_tool_results": true}
+]
+JSONEOF
 atom_case s6 /tmp/atom-s6.json
 atom_case s7 /tmp/atom-s7.json
 atom_case s8 /tmp/atom-s8.json
 atom_case s9 /tmp/atom-s9.json
+TOOLS_FLAG="--tools read,bash,edit,write,grep,find,ls"
+atom_case s10 /tmp/atom-s10.json
+TOOLS_FLAG=""
