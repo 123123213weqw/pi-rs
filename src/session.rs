@@ -119,6 +119,21 @@ impl Session {
         self.last_entry_id = tc.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
     }
 
+    /// Mid-session model switch (pi's Ctrl+P cycleModel): one model_change entry.
+    pub fn append_model_change(&mut self, provider: &str, model_id: &str) {
+        let id = short_id();
+        let entry = json!({
+            "type": "model_change",
+            "id": id,
+            "parentId": self.last_entry_id,
+            "timestamp": iso_now(),
+            "provider": provider,
+            "modelId": model_id,
+        });
+        self.append_raw(entry);
+        self.last_entry_id = Some(id);
+    }
+
     /// Append a message entry; returns the entry id.
     pub fn append_message(&mut self, message: &Message) -> String {
         let id = short_id();

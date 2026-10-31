@@ -2,13 +2,24 @@
 //! ratatui/crossterm. Behavior parity targets pi's interactive mode basics:
 //! prompt at bottom, streaming assistant text, tool lines inline, Esc/Ctrl+C
 //! aborts the in-flight request (pi: Esc aborts; Ctrl+C-Ctrl+C exits).
+//!
+//! Also aligned with pi's interactive keys: Ctrl+P / Ctrl+Shift+P cycle the
+//! model (scoped to `--models`, else the deepseek catalog; writes a
+//! `model_change` session entry, effective next turn), Ctrl+O toggles tool
+//! output, mouse wheel and PageUp/PageDown scroll the transcript, and Tab
+//! completes `/` commands. A footer shows cwd, model and token usage
+//! (pi: pwd + token stats), with a keybinding hint line above it.
 
 use crate::agent::{self, AgentConfig, UiEvent};
 use crate::messages::{AssistantMessage, Message};
+use crate::provider::{self, Model};
 use crate::session::Session;
 use ratatui::crossterm::execute;
 use ratatui::{
-    crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    crossterm::event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        MouseEventKind,
+    },
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -20,6 +31,10 @@ use std::io::{Stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Slash commands Tab completes (pi has a full command registry; this is the
+/// subset meaningful without extensions/skills).
+const COMMANDS: [&str; 6] = ["/clear", "/exit", "/help", "/model", "/models", "/quit"];
 
 /// One rendered transcript block.
 enum ChatBlock {
@@ -42,13 +57,26 @@ struct App {
     hist_idx: Option<usize>,
     /// Saved editor line while navigating history.
     hist_draft: String,
-    scroll: usize,
+    /// Lines scrolled up from the bottom; 0 = pinned to the live tail.
+    scroll_from_bottom: usize,
     generating: bool,
     spinner: usize,
+    /// Footer: working-directory name and current model label.
+    cwd_name: String,
+    model_label: String,
+    /// Running token totals (pi's footer token stats).
+    usage_in: u64,
+    usage_out: u64,
+    usage_cached: u64,
+    /// Ctrl+P cycle list and current position; empty = cycling disabled.
+    cycle_list: Vec<Model>,
+    cycle_idx: usize,
+    /// Tab-completion candidates for the current `/` prefix.
+    ac: Option<Vec<String>>,
 }
 
 impl App {
-    fn new() -> App {
+    fn new(model_label: String, cwd_name: String, cycle_list: Vec<Model>) -> App {
         App {
             blocks: Vec::new(),
             editor: String::new(),
@@ -56,15 +84,38 @@ impl App {
             history: VecDeque::new(),
             hist_idx: None,
             hist_draft: String::new(),
-            scroll: 0,
+            scroll_from_bottom: 0,
             generating: false,
             spinner: 0,
+            cwd_name,
+            model_label,
+            usage_in: 0,
+            usage_out: 0,
+            usage_cached: 0,
+            cycle_list,
+            cycle_idx: 0,
+            ac: None,
         }
     }
 
     fn scroll_bottom(&mut self) {
-        self.scroll = usize::MAX; // pinned to bottom on next render
+        self.scroll_from_bottom = 0; // pinned to bottom on next render
     }
+}
+
+/// Longest common prefix of the candidates Tab is choosing between.
+fn longest_common_prefix(cands: &[&str]) -> String {
+    let mut prefix = String::new();
+    let Some(first) = cands.first() else { return prefix };
+    'outer: for (i, ch) in first.chars().enumerate() {
+        for c in cands {
+            if c.chars().nth(i) != Some(ch) {
+                break 'outer;
+            }
+        }
+        prefix.push(ch);
+    }
+    prefix
 }
 
 const SPINNER: [char; 4] = ['⠋', '⠙', '⠹', '⠸'];
@@ -147,8 +198,13 @@ fn render_block(b: &ChatBlock, area_width: u16) -> Vec<Line<'static>> {
 }
 
 fn draw(f: &mut Frame, app: &App) {
-    let [transcript, editor] = Layout::vertical([Constraint::Min(3), Constraint::Length(3)])
-        .areas(f.size());
+    let [transcript, hint, footer, editor] = Layout::vertical([
+        Constraint::Min(3),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(3),
+    ])
+    .areas(f.size());
     let width = transcript.width;
 
     let mut lines: Vec<Line> = Vec::new();
@@ -164,18 +220,42 @@ fn draw(f: &mut Frame, app: &App) {
     }
 
     let visible = transcript.height as usize;
-    // auto-pin to bottom unless the user scrolled up
+    // 0 = pinned to the live tail; otherwise that many lines above the bottom.
     let max_scroll = lines.len().saturating_sub(visible);
-    let scroll = if app.scroll == usize::MAX || app.scroll > max_scroll {
-        max_scroll
-    } else {
-        app.scroll
-    };
-    let view_start = scroll.min(max_scroll);
+    let view_start = max_scroll.saturating_sub(app.scroll_from_bottom.min(max_scroll));
     let shown: Vec<Line> = lines.into_iter().skip(view_start).collect();
 
     let para = Paragraph::new(shown);
     f.render_widget(para, transcript);
+
+    // hint line: Tab-completion candidates, or the standing keybinding hints
+    let hint_line = match &app.ac {
+        Some(cands) => Line::from(Span::styled(
+            format!("  {}", cands.join("   ")),
+            Style::default().fg(Color::Cyan),
+        )),
+        None => Line::from(Span::styled(
+            " ctrl+p / ctrl+shift+p model · pgup/pgdn scroll · tab completes /cmds",
+            Style::default().fg(Color::DarkGray),
+        )),
+    };
+    f.render_widget(Paragraph::new(hint_line), hint);
+
+    // footer: pwd + model (left), token stats (right) — pi shows pwd, token and context usage
+    let footer_line = Line::from(vec![
+        Span::styled(
+            format!(" {} · {}", app.cwd_name, app.model_label),
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::styled(
+            format!(
+                "   in {} · out {} · cached {}",
+                app.usage_in, app.usage_out, app.usage_cached
+            ),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(footer_line), footer);
 
     let cursor_style = Style::default().bg(Color::Green).fg(Color::Black);
     let (before, at, after) = {
@@ -210,31 +290,60 @@ pub struct TuiHandle {
     pub session: Arc<Mutex<Session>>,
     pub cfg: AgentConfig,
     pub initial_message: Option<String>,
+    /// `--models` scoped list for Ctrl+P cycling (pi's scoped model cycling).
+    pub cycle_models: Vec<String>,
 }
 
 fn terminal_init(out: &mut Stdout) -> std::io::Result<()> {
     use ratatui::crossterm::terminal::*;
     enable_raw_mode()?;
-    execute!(out, EnterAlternateScreen)?;
+    execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
     Ok(())
 }
 
 fn terminal_restore(out: &mut Stdout) {
     use ratatui::crossterm::terminal::*;
     let _ = disable_raw_mode();
-    let _ = execute!(out, LeaveAlternateScreen);
+    let _ = execute!(out, DisableMouseCapture, LeaveAlternateScreen);
     let _ = out.flush();
 }
 
 /// Run the interactive session. Blocks until the user quits.
 pub fn run(handle: TuiHandle) -> Result<(), String> {
-    let TuiHandle { session, cfg, initial_message } = handle;
+    let TuiHandle { session, cfg, initial_message, cycle_models } = handle;
     let mut stdout = std::io::stdout();
     terminal_init(&mut stdout).map_err(|e| format!("terminal init: {e}"))?;
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend).map_err(|e| format!("terminal: {e}"))?;
 
-    let mut app = App::new();
+    // Ctrl+P cycle list: scoped `--models` patterns, else the deepseek catalog.
+    // A single-entry list is not worth cycling, so it is dropped.
+    let mut cycle_list: Vec<Model> = Vec::new();
+    for pat in &cycle_models {
+        if let Ok(m) = provider::resolve_model(None, Some(pat)) {
+            if !cycle_list.iter().any(|x| x.provider == m.provider && x.id == m.id) {
+                cycle_list.push(m);
+            }
+        }
+    }
+    if cycle_list.is_empty() && cfg.model.provider == "deepseek" {
+        cycle_list = provider::list_models();
+    }
+    if !cycle_list.iter().any(|m| m.provider == cfg.model.provider && m.id == cfg.model.id) {
+        cycle_list.insert(0, cfg.model.clone());
+    }
+    if cycle_list.len() < 2 {
+        cycle_list.clear();
+    }
+    let mut cycle_idx = 0;
+    let mut cur_model = cfg.model.clone();
+
+    let cwd_name = cfg
+        .cwd
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| cfg.cwd.display().to_string());
+    let mut app = App::new(format!("{}/{}", cur_model.provider, cur_model.id), cwd_name, cycle_list);
     app.blocks.push(ChatBlock::System(format!(
         "pi-rs · model {} @ {} · /exit or ctrl+d quits · esc aborts",
         cfg.model.id, cfg.model.provider
@@ -290,6 +399,11 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                     app.blocks.push(ChatBlock::ToolResult { name, ok, text, expanded: false });
                 }
                 UiEvent::Done(_) | UiEvent::Failed(_) => {
+                    if let UiEvent::Done(msg) = &ev {
+                        app.usage_in += msg.usage.input;
+                        app.usage_out += msg.usage.output;
+                        app.usage_cached += msg.usage.cache_read;
+                    }
                     if let Some(ChatBlock::Thinking { live, .. }) = app.blocks.last_mut() {
                         *live = false;
                     }
@@ -314,25 +428,50 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
 
         // poll terminal input (non-blocking tick)
         if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-            if let Ok(Event::Key(key)) = event::read() {
-                if key.kind == KeyEventKind::Press {
+            match event::read() {
+                Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+                    app.ac = None; // any key refreshes completion; Tab repopulates
+                    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     if app.generating && key.code == KeyCode::Esc {
                         abort.store(true, Ordering::Relaxed);
                         app.blocks.push(ChatBlock::System("aborting…".into()));
-                    } else if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    } else if ctrl && key.code == KeyCode::Char('c') {
                         if app.generating {
                             abort.store(true, Ordering::Relaxed);
                         } else {
                             break;
                         }
-                    } else if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    } else if ctrl && key.code == KeyCode::Char('o') {
                         for b in app.blocks.iter_mut() {
                             if let ChatBlock::ToolResult { expanded, .. } = b {
                                 *expanded = !*expanded;
                             }
                         }
-                    } else if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) && !app.generating {
+                    } else if ctrl && key.code == KeyCode::Char('d') && !app.generating {
                         break;
+                    } else if ctrl && (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P')) {
+                        // pi: ctrl+p / ctrl+shift+p cycle models; applies to the next request
+                        if app.cycle_list.len() > 1 {
+                            let len = app.cycle_list.len();
+                            cycle_idx = if key.code == KeyCode::Char('P') {
+                                (cycle_idx + len - 1) % len
+                            } else {
+                                (cycle_idx + 1) % len
+                            };
+                            cur_model = app.cycle_list[cycle_idx].clone();
+                            app.model_label = format!("{}/{}", cur_model.provider, cur_model.id);
+                            session
+                                .lock()
+                                .unwrap()
+                                .append_model_change(&cur_model.provider, &cur_model.id);
+                            app.blocks
+                                .push(ChatBlock::System(format!("model → {} (next request)", app.model_label)));
+                            app.scroll_bottom();
+                        }
+                    } else if key.code == KeyCode::PageUp {
+                        app.scroll_from_bottom = app.scroll_from_bottom.saturating_add(10);
+                    } else if key.code == KeyCode::PageDown {
+                        app.scroll_from_bottom = app.scroll_from_bottom.saturating_sub(10);
                     } else if !app.generating {
                         match key.code {
                             KeyCode::Enter => {
@@ -342,8 +481,37 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                                 if text.is_empty() {
                                     continue;
                                 }
-                                if text == "/exit" || text == "/quit" {
-                                    break;
+                                if text.starts_with('/') {
+                                    match text.as_str() {
+                                        "/exit" | "/quit" => break,
+                                        "/clear" => app.blocks.clear(),
+                                        "/model" | "/models" => {
+                                            let list = app
+                                                .cycle_list
+                                                .iter()
+                                                .map(|m| format!("{}/{}", m.provider, m.id))
+                                                .collect::<Vec<_>>()
+                                                .join(", ");
+                                            let msg = if list.is_empty() {
+                                                format!("model {} · no cycle list (pass --models a,b,c)", app.model_label)
+                                            } else {
+                                                format!("model {} · ctrl+p cycles: {}", app.model_label, list)
+                                            };
+                                            app.blocks.push(ChatBlock::System(msg));
+                                        }
+                                        "/help" => app.blocks.push(ChatBlock::System(
+                                            "enter send · up/down history · tab completes /clear /exit /help /model /quit · \
+                                             ctrl+p / ctrl+shift+p cycle model · ctrl+o expand tool output · \
+                                             pgup/pgdn + wheel scroll · esc abort · ctrl+c ctrl+c / ctrl+d / /exit quit"
+                                                .into(),
+                                        )),
+                                        other => app.blocks.push(ChatBlock::Error(format!(
+                                            "unknown command {other} (tab completes: {})",
+                                            COMMANDS.join(" ")
+                                        ))),
+                                    }
+                                    app.scroll_bottom();
+                                    continue;
                                 }
                                 app.history.push_back(text.clone());
                                 app.hist_idx = None;
@@ -352,7 +520,7 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                                 app.generating = true;
                                 abort.store(false, Ordering::Relaxed);
                                 let cfg2 = AgentConfig {
-                                    model: cfg.model.clone(),
+                                    model: cur_model.clone(),
                                     api_key: cfg.api_key.clone(),
                                     system_prompt: cfg.system_prompt.clone(),
                                     tools: cfg.tools.clone(),
@@ -428,7 +596,27 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                             }
                             KeyCode::Home => app.cursor = 0,
                             KeyCode::End => app.cursor = app.editor.chars().count(),
-                            KeyCode::Char(ch) => {
+                            KeyCode::Tab => {
+                                if app.editor.starts_with('/') && !app.editor.contains(' ') {
+                                    let prefix = app.editor.clone();
+                                    let cands: Vec<&str> = COMMANDS
+                                        .iter()
+                                        .copied()
+                                        .filter(|c| c.starts_with(&prefix))
+                                        .collect();
+                                    if cands.len() == 1 {
+                                        app.editor = cands[0].to_string();
+                                        app.cursor = app.editor.chars().count();
+                                    } else if cands.len() > 1 {
+                                        app.editor = longest_common_prefix(&cands);
+                                        app.cursor = app.editor.chars().count();
+                                        app.ac = Some(cands.iter().map(|s| s.to_string()).collect());
+                                    }
+                                }
+                            }
+                            KeyCode::Char(ch)
+                                if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                            {
                                 let chars: Vec<char> = app.editor.chars().collect();
                                 let c = app.cursor.min(chars.len());
                                 app.editor = chars[..c].iter().collect::<String>() + &ch.to_string() + &chars[c..].iter().collect::<String>();
@@ -438,8 +626,20 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                         }
                     }
                 }
-            } else if let Ok(Event::Resize(_, _)) = event::read() {
-                // redraw on next tick
+                Ok(Event::Mouse(me)) => match me.kind {
+                    // pi's wheel scroll: a notch is a small step; 3 lines keeps it visible
+                    MouseEventKind::ScrollUp => {
+                        app.scroll_from_bottom = app.scroll_from_bottom.saturating_add(3);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        app.scroll_from_bottom = app.scroll_from_bottom.saturating_sub(3);
+                    }
+                    _ => {}
+                },
+                Ok(Event::Resize(_, _)) => {
+                    // redraw on next tick
+                }
+                _ => {}
             }
         }
 

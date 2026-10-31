@@ -179,7 +179,12 @@ fn main() -> ExitCode {
 
     if interactive {
         let initial = if a.messages.is_empty() { None } else { Some(user_text.clone()) };
-        let handle = tui::TuiHandle { session: Arc::new(Mutex::new(session)), cfg, initial_message: initial };
+        let handle = tui::TuiHandle {
+            session: Arc::new(Mutex::new(session)),
+            cfg,
+            initial_message: initial,
+            cycle_models: a.models.clone(),
+        };
         return match tui::run(handle) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

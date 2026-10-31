@@ -89,8 +89,9 @@ same entry tree (8-char ids, parentId chain), same usage accounting
 
 - No async runtime: single-threaded event loop + blocking SSE — the agent loop *is* sequential.
 - Transcript lives on disk as JSONL; memory holds only what the next request needs.
-- Deps kept to five crates: `serde`, `serde_json` (preserve_order — model-emitted key order
-  round-trips verbatim), `ureq` (rustls), `uuid`, `unicode-normalization`.
+- Deps kept to seven crates: `serde`, `serde_json` (preserve_order — model-emitted key order
+  round-trips verbatim), `ureq` (rustls), `uuid`, `unicode-normalization`, plus `ratatui` +
+  `crossterm` for the interactive TUI (the headless core still uses only the first five).
 - The edit tool's diff/fuzzy-match engine is a line-for-line port of pi's `edit-diff.ts`,
   including its NFKC smart-quote/dash normalization; `truncate.rs` reproduces pi's
   head/tail truncation bit-for-bit, UTF-8 boundary handling included.
@@ -108,6 +109,9 @@ bash tests/parity_v100.sh <tasks-dir> pi  <task-ids>
 
 # quick end-to-end without any key (scripted mock provider)
 bash tests/e2e_mock.sh
+
+# interactive-TUI end-to-end: scripted keystrokes through a pty, no key needed
+python3 tests/tui_e2e.py                              # → 13/13 checks
 ```
 
 Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
@@ -119,11 +123,16 @@ Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
 system prompt, context-file discovery, usage/cost accounting — **and the interactive TUI**:
 full-screen transcript (streaming assistant text, inline tool lines, collapsible tool output),
 bottom editor with input history, Esc/Ctrl+C abort, `/exit` — plus **streaming CoT**
-(thinking deltas render dim/italic as they arrive) and `Ctrl+O` to expand tool output.
-Verified end-to-end with scripted keystrokes in tmux. The v1.4.0 wire is ported too: sectioned system prompt
+(thinking deltas render dim/italic as they arrive), `Ctrl+O` to expand tool output,
+**`Ctrl+P`/`Ctrl+Shift+P` model cycling** (scoped to `--models`, writes a `model_change`
+session entry, effective next request), **mouse-wheel and PageUp/PageDown scrolling**,
+a **footer** with cwd, model and token stats, and **Tab completion** for `/` commands
+(`/clear` `/exit` `/help` `/model` `/quit`) with a keybinding hint line.
+Verified end-to-end with scripted keystrokes driven through a pty. The v1.4.0 wire is ported too: sectioned system prompt
 (`<tools>`/`<rules>`/`<docs>`/`<cwd>`), strict-mode tool schemas, `max_tokens` params,
-session `role:"system"` entry with named sections. Gaps vs pi's TUI: autocomplete, model picker, themes,
-mouse support, image rendering.
+session `role:"system"` entry with named sections. Gaps vs pi's TUI: full autocomplete
+(files/skills), model-selector popup (`Ctrl+L`), themes, markdown/syntax rendering, image
+rendering, editor features (undo, kill-ring).
 
 **Roadmap**: extensions & skills loading · MCP client · compaction ·
 `--export` HTML · RPC mode · Anthropic-native API. (pi-durable's transactional runtime and

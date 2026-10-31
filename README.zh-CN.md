@@ -86,8 +86,9 @@ arena 式记账读两个 harness 无需改一行。
 
 - 无异步运行时：单线程事件循环 + 阻塞式 SSE——agent 循环本来就是串行的。
 - 转录以 JSONL 躺在磁盘上，内存只持有下一次请求需要的那部分。
-- 依赖刻意收敛到五个 crate：`serde`、`serde_json`（preserve_order——模型发来的
-  键序原样回传）、`ureq`（rustls）、`uuid`、`unicode-normalization`。
+- 依赖刻意收敛到七个 crate：`serde`、`serde_json`（preserve_order——模型发来的
+  键序原样回传）、`ureq`（rustls）、`uuid`、`unicode-normalization`，外加交互 TUI 用的
+  `ratatui` + `crossterm`（headless 核心仍只依赖前五个）。
 - edit 工具的 diff/模糊匹配引擎是 pi `edit-diff.ts` 的逐行移植（含 NFKC
   智能引号/破折号归一化）；`truncate.rs` 逐位复刻 pi 的 head/tail 截断，
   含 UTF-8 边界处理。
@@ -105,6 +106,9 @@ bash tests/parity_v100.sh <tasks-dir> pi  <task-ids>
 
 # 无 key 的快速端到端（脚本化 mock provider）
 bash tests/e2e_mock.sh
+
+# 交互 TUI 端到端：pty 程序化发键，无需 key
+python3 tests/tui_e2e.py                              # → 13/13 项检查
 ```
 
 数字、方法论与分题明细：[docs/bench.md](docs/bench.md)。
@@ -115,11 +119,15 @@ bash tests/e2e_mock.sh
 （`-p`、`--mode json`、`--provider/--model/--api-key/--tools/--thinking/--session-dir/…`）、
 系统提示词、上下文文件发现、usage/成本记账——**以及交互式 TUI**：全屏转录视图
 （流式助手文本、内联工具行、工具输出折叠）、底部输入行带历史、Esc/Ctrl+C 中断、
-`/exit`——并支持**流式 CoT**（thinking 增量实时以暗灰斜体渲染）与 `Ctrl+O` 展开工具
-输出。已用 tmux 程序化发键完成端到端验证。v1.4.0 的 wire 层也已移植：分节系统
+`/exit`——并支持**流式 CoT**（thinking 增量实时以暗灰斜体渲染）、`Ctrl+O` 展开工具
+输出、**`Ctrl+P`/`Ctrl+Shift+P` 模型轮换**（以 `--models` 为范围,写 `model_change`
+会话条目,下一轮请求生效）、**鼠标滚轮 + PageUp/PageDown 滚动**、**footer 状态栏**
+（目录 · 模型 · token 用量）与 **Tab 命令补全**（`/clear` `/exit` `/help` `/model`
+`/quit`）及键位提示行。已用 pty 程序化发键完成端到端验证。v1.4.0 的 wire 层也已移植：分节系统
 提示词（`<tools>`/`<rules>`/`<docs>`/`<cwd>`）、strict 模式工具 schema、`max_tokens`
-参数、会话 `role:"system"` 分节条目。与 pi TUI 的差距：自动补全、模型切换器、主题、
-鼠标支持、图片渲染。
+参数、会话 `role:"system"` 分节条目。与 pi TUI 的差距：完整自动补全（文件/skills）、
+模型选择器弹窗（`Ctrl+L`）、主题、Markdown/语法高亮渲染、图片渲染、编辑器高级特性
+（撤销栈、kill-ring）。
 
 **路线图**：extensions & skills 加载 · MCP 客户端 · compaction ·
 `--export` HTML · RPC 模式 · Anthropic 原生 API。（pi-durable 的事务化运行时与
