@@ -123,6 +123,9 @@ const TOOL_PREVIEW_LINES: usize = 3;
 
 fn render_block(b: &ChatBlock, area_width: u16) -> Vec<Line<'static>> {
     let wrap = |prefix: &str, text: &str, style: Style| -> Vec<Line<'static>> {
+        // pasted text can carry \r\n or lone \r; a raw \r must never reach the
+        // terminal (it would overwrite the row from column 0)
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
         let usable = (area_width as usize).saturating_sub(prefix.chars().count() + 1).max(8);
         // word-ish wrap: hard wrap by chars keeps it simple and correct for CJK
         let mut lines = Vec::new();
@@ -258,7 +261,10 @@ fn draw(f: &mut Frame, app: &App) {
     f.render_widget(Paragraph::new(footer_line), footer);
 
     let cursor_style = Style::default().bg(Color::Green).fg(Color::Black);
-    // newlines (e.g. from a paste) render as ⏎ so the single-line editor stays readable
+    // newlines (e.g. from a paste) render as ⏎ so the single-line editor stays
+    // readable; \r must never reach the terminal raw — a real carriage return
+    // would overwrite the line from column 0 and garble the display
+    let disp = |s: String| s.replace("\r\n", " ⏎ ").replace('\r', " ⏎ ").replace('\n', " ⏎ ");
     let (before, at, after) = {
         let chars: Vec<char> = app.editor.chars().collect();
         let c = app.cursor.min(chars.len());
@@ -269,8 +275,7 @@ fn draw(f: &mut Frame, app: &App) {
             String::new()
         };
         let at = chars.get(c).map(|x| x.to_string()).unwrap_or_else(|| " ".to_string());
-        let at = if at == "\n" { "⏎".to_string() } else { at };
-        (before.replace('\n', " ⏎ "), at, after.replace('\n', " ⏎ "))
+        (disp(before), disp(at), disp(after))
     };
     let editor_line = Line::from(vec![
         Span::styled("❯ ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
