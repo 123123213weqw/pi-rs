@@ -17,8 +17,8 @@ use crate::session::Session;
 use ratatui::crossterm::execute;
 use ratatui::{
     crossterm::event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-        MouseEventKind,
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind,
     },
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
@@ -258,19 +258,19 @@ fn draw(f: &mut Frame, app: &App) {
     f.render_widget(Paragraph::new(footer_line), footer);
 
     let cursor_style = Style::default().bg(Color::Green).fg(Color::Black);
+    // newlines (e.g. from a paste) render as ⏎ so the single-line editor stays readable
     let (before, at, after) = {
         let chars: Vec<char> = app.editor.chars().collect();
         let c = app.cursor.min(chars.len());
+        let before: String = chars[..c].iter().collect();
         let after = if c < chars.len() {
             chars[c + 1..].iter().collect::<String>()
         } else {
             String::new()
         };
-        (
-            chars[..c].iter().collect::<String>(),
-            chars.get(c).map(|x| x.to_string()).unwrap_or_else(|| " ".to_string()),
-            after,
-        )
+        let at = chars.get(c).map(|x| x.to_string()).unwrap_or_else(|| " ".to_string());
+        let at = if at == "\n" { "⏎".to_string() } else { at };
+        (before.replace('\n', " ⏎ "), at, after.replace('\n', " ⏎ "))
     };
     let editor_line = Line::from(vec![
         Span::styled("❯ ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -297,15 +297,41 @@ pub struct TuiHandle {
 fn terminal_init(out: &mut Stdout) -> std::io::Result<()> {
     use ratatui::crossterm::terminal::*;
     enable_raw_mode()?;
-    execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
+    // bracketed paste: a multi-line paste arrives as one Paste event instead of
+    // one keypress per line (which would submit per line)
+    execute!(out, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)?;
     Ok(())
 }
 
 fn terminal_restore(out: &mut Stdout) {
     use ratatui::crossterm::terminal::*;
     let _ = disable_raw_mode();
-    let _ = execute!(out, DisableMouseCapture, LeaveAlternateScreen);
+    let _ = execute!(out, DisableBracketedPaste, DisableMouseCapture, LeaveAlternateScreen);
     let _ = out.flush();
+}
+
+/// Cursor index of the start of the word (or earlier whitespace run) before `cursor`.
+fn word_start(chars: &[char], cursor: usize) -> usize {
+    let mut i = cursor.min(chars.len());
+    while i > 0 && chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    while i > 0 && !chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    i
+}
+
+/// Cursor index just past the word (or whitespace run) after `cursor`.
+fn word_end(chars: &[char], cursor: usize) -> usize {
+    let mut i = cursor.min(chars.len());
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+    while i < chars.len() && !chars[i].is_whitespace() {
+        i += 1;
+    }
+    i
 }
 
 /// Run the interactive session. Blocks until the user quits.
@@ -614,6 +640,34 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                                     }
                                 }
                             }
+                            // readline-style editing keys (pi's editor has the
+                            // same muscle-memory bindings)
+                            KeyCode::Char('a') if ctrl => app.cursor = 0,
+                            KeyCode::Char('e') if ctrl => {
+                                app.cursor = app.editor.chars().count();
+                            }
+                            KeyCode::Char('u') if ctrl => {
+                                let chars: Vec<char> = app.editor.chars().collect();
+                                let c = app.cursor.min(chars.len());
+                                app.editor = chars[c..].iter().collect();
+                                app.cursor = 0;
+                            }
+                            KeyCode::Char('w') if ctrl => {
+                                let chars: Vec<char> = app.editor.chars().collect();
+                                let c = app.cursor.min(chars.len());
+                                let start = word_start(&chars, c);
+                                app.editor = chars[..start].iter().collect::<String>()
+                                    + &chars[c..].iter().collect::<String>();
+                                app.cursor = start;
+                            }
+                            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::ALT) => {
+                                let chars: Vec<char> = app.editor.chars().collect();
+                                app.cursor = word_start(&chars, app.cursor);
+                            }
+                            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::ALT) => {
+                                let chars: Vec<char> = app.editor.chars().collect();
+                                app.cursor = word_end(&chars, app.cursor);
+                            }
                             KeyCode::Char(ch)
                                 if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
                             {
@@ -624,6 +678,17 @@ pub fn run(handle: TuiHandle) -> Result<(), String> {
                             }
                             _ => {}
                         }
+                    }
+                }
+                Ok(Event::Paste(text)) => {
+                    // bracketed paste: insert as one unit, never auto-submit
+                    if !app.generating {
+                        let chars: Vec<char> = app.editor.chars().collect();
+                        let c = app.cursor.min(chars.len());
+                        app.editor = chars[..c].iter().collect::<String>()
+                            + &text
+                            + &chars[c..].iter().collect::<String>();
+                        app.cursor = c + text.chars().count();
                     }
                 }
                 Ok(Event::Mouse(me)) => match me.kind {

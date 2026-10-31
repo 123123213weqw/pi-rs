@@ -119,7 +119,9 @@ Numbers, methodology and per-task tables: [docs/bench.md](docs/bench.md).
 ## Parity scope
 
 **Aligned**: the headless core — agent loop, 7 tools, session format, CLI surface
-(`-p`, `--mode json`, `--provider/--model/--api-key/--tools/--thinking/--session-dir/…`),
+(`-p`, `--mode json`, `--provider/--model/--api-key/--tools/--thinking/--list-models/--session-dir/…`;
+flags that aren't implemented yet — `--resume`, `--session`, `--fork`, `--export`, `-e` — exit
+with a clear error instead of silently misbehaving),
 system prompt, context-file discovery, usage/cost accounting — **and the interactive TUI**:
 full-screen transcript (streaming assistant text, inline tool lines, collapsible tool output),
 bottom editor with input history, Esc/Ctrl+C abort, `/exit` — plus **streaming CoT**

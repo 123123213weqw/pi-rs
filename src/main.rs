@@ -34,7 +34,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if a.version {
-        println!("0.74.2");
+        println!("pi-rs 1.4.0+main.35dfa7573");
         return ExitCode::SUCCESS;
     }
     for (t, m) in &a.diagnostics {
@@ -43,6 +43,54 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     }
+
+    // --list-models [search]: print the catalog and exit (no API key needed).
+    if let Some(search) = &a.list_models {
+        let pat = search.as_deref().unwrap_or("");
+        for m in provider::list_models() {
+            let label = format!("{}/{}", m.provider, m.id);
+            if pat.is_empty() || label.contains(pat) {
+                println!("{label}");
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    // Flags parsed for CLI-surface parity but not implemented: fail loudly
+    // instead of silently ignoring them — or worse, treating their argument
+    // as a prompt (which is what --resume <id> used to do).
+    let unsupported: Vec<&str> = [
+        (a.resume, "--resume (interactive session picker)"),
+        (a.session.is_some(), "--session"),
+        (a.fork.is_some(), "--fork"),
+        (a.export.is_some(), "--export (HTML export)"),
+        (!a.extensions.is_empty(), "--extension/-e (extensions)"),
+        (!a.skills.is_empty() || a.no_skills, "--skills/--no-skills"),
+        (!a.themes.is_empty() || a.no_themes, "--themes/--no-themes"),
+        (!a.prompt_templates.is_empty() || a.no_prompt_templates, "--prompt-templates"),
+    ]
+    .iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, name)| *name)
+    .collect();
+    if !unsupported.is_empty() {
+        eprintln!("error: not supported yet: {}", unsupported.join(", "));
+        eprintln!("       (to continue a session use --continue; the rest is on the roadmap)");
+        return ExitCode::from(2);
+    }
+    if a.mode.as_deref() == Some("rpc") {
+        eprintln!("error: --mode rpc is not supported yet (--mode json works)");
+        return ExitCode::from(2);
+    }
+
+    // Effective thinking level: --thinking flag > PI_THINKING_LEVEL env > high.
+    // Exported back to the env so the provider and the session entry agree.
+    let thinking_level = a
+        .thinking
+        .clone()
+        .or_else(|| std::env::var("PI_THINKING_LEVEL").ok().filter(|s| !s.is_empty()))
+        .unwrap_or_else(|| "high".into());
+    std::env::set_var("PI_THINKING_LEVEL", &thinking_level);
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd_str = cwd.to_string_lossy().into_owned();
@@ -147,7 +195,7 @@ fn main() -> ExitCode {
         }
     };
 
-    session.append_setup_entries(&model.provider, &model.id, "high");
+    session.append_setup_entries(&model.provider, &model.id, &thinking_level);
     // pi v1.4.0 stores the system prompt as a role:"system" message entry
     session.append_system_message(system_prompt::build_sections(
         system_prompt::SystemPromptOptions {

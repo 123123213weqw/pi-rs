@@ -26,9 +26,17 @@ shutil.rmtree(SESS, ignore_errors=True)
 os.makedirs(WORK)
 os.makedirs(SESS)
 
+# mock scenario: four zero-usage turns for the editor-key tests, then the
+# usage-carrying turn the footer check relies on
 with open("/tmp/tui-e2e-scenario.json", "w") as f:
-    json.dump([{"text": "hi from mock", "usage": {"prompt_tokens": 100, "completion_tokens": 20,
-                                                  "prompt_tokens_details": {"cached_tokens": 64}}}], f)
+    json.dump([
+        {"text": ".", "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+        {"text": ".", "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+        {"text": ".", "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+        {"text": ".", "usage": {"prompt_tokens": 0, "completion_tokens": 0}},
+        {"text": "hi from mock", "usage": {"prompt_tokens": 100, "completion_tokens": 20,
+                                           "prompt_tokens_details": {"cached_tokens": 64}}},
+    ], f)
 
 mock = subprocess.Popen([sys.executable, f"{ROOT}/tests/mock_server.py",
                          "/tmp/tui-e2e-scenario.json", str(PORT)])
@@ -144,6 +152,37 @@ try:
     N = norm(total_raw)
     check("unknown command: error line", "unknown command /nope" in N)
 
+    # --- editor UX: bracketed paste (multi-line paste must not auto-submit) ---
+    send("\x1b[200~line one\nline two\x1b[201~")
+    read_all(0.4)
+    frame = norm(full_redraw())
+    # spaces in a redrawn frame can be emitted as cursor jumps rather than
+    # literal blanks, so compare space-insensitively; the session-level check
+    # below proves the exact string survived
+    squeezed = frame.replace(" ", "")
+    check("paste: whole text in editor", "lineone" in squeezed and "linetwo" in squeezed)
+    check("paste: newline shown as marker", "⏎" in squeezed)
+    send("\r")
+    read_all(1.2)
+
+    # --- editor UX: readline keys, verified via what actually gets submitted ---
+    send("hello world")
+    send("\x17")  # ctrl+w kills "world"
+    send("\r")
+    read_all(1.2)
+
+    send("junk text")
+    send("\x15")  # ctrl+u kills the whole line
+    send("X")
+    send("\r")
+    read_all(1.2)
+
+    send("bc")
+    send("\x01")  # ctrl+a jumps home
+    send("a")
+    send("\r")
+    read_all(1.2)
+
     send("hello\r")
     read_all(3.0)
     N = norm(total_raw)
@@ -166,6 +205,24 @@ entries = [json.loads(l) for l in data.splitlines() if l.strip()]
 mc = [e for e in entries if e.get("type") == "model_change"]
 check("session: model_change count == 3 (setup + fwd + wrap)", len(mc) == 3)
 check("session: model_change target recorded", any(e.get("modelId") == "deepseek-reasoner" for e in mc))
+
+
+def user_texts():
+    out = []
+    for e in entries:
+        m = e.get("message", {})
+        if m.get("role") == "user":
+            for c in m.get("content", []):
+                if isinstance(c, dict) and c.get("type") == "text":
+                    out.append(c.get("text", ""))
+    return out
+
+
+ut = user_texts()
+check("paste: newlines kept through submit", "line one\nline two" in ut)
+check("ctrl+w: submitted 'hello' not 'hello world'", "hello" in ut and "hello world" not in ut)
+check("ctrl+u: line cleared before typing X", "X" in ut and "junk text" not in ut)
+check("ctrl+a: inserted at line start", "abc" in ut and "bc" not in ut)
 
 print(f"\n{sum(1 for _, ok in checks if ok)}/{len(checks)}")
 sys.exit(0 if all(ok for _, ok in checks) else 1)
