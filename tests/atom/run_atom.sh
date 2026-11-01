@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Behavior-atom test: run real pi 0.74.2 and pi-rs through identical mock-LLM
+# Behavior-atom test: run real pi (at the UPSTREAM pin) and pi-rs through identical mock-LLM
 # scenarios, then diff every behavior atom (prompt/tools/wire/stdout/exit/
 # session/filesystem). Runs on the V100.
 #
@@ -174,4 +174,16 @@ atom_case s8 /tmp/atom-s8.json
 atom_case s9 /tmp/atom-s9.json
 TOOLS_FLAG="--tools read,bash,edit,write,grep,find,ls"
 atom_case s10 /tmp/atom-s10.json
+TOOLS_FLAG=""
+
+# s11: --no-skills must suppress the <skills> system-prompt section
+# (upstream pi main@a6bde34bb6 skills discovery; user ~/.agents/skills exists)
+cat > /tmp/atom-s11.json <<'JSONEOF'
+[
+ {"tool_calls":[{"id":"call_1","name":"bash","arguments":{"command":"printf 'skillless\\n'"}}]},
+ {"text":"done"}
+]
+JSONEOF
+TOOLS_FLAG="--no-skills"
+atom_case s11 /tmp/atom-s11.json
 TOOLS_FLAG=""

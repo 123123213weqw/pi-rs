@@ -13,6 +13,7 @@ mod context;
 mod messages;
 mod provider;
 mod session;
+mod skills;
 mod system_prompt;
 mod tools;
 mod tui;
@@ -34,7 +35,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if a.version {
-        println!("pi-rs 1.4.0+main.35dfa7573");
+        println!("pi-rs 1.4.0+main.a6bde34bb6");
         return ExitCode::SUCCESS;
     }
     for (t, m) in &a.diagnostics {
@@ -65,7 +66,6 @@ fn main() -> ExitCode {
         (a.fork.is_some(), "--fork"),
         (a.export.is_some(), "--export (HTML export)"),
         (!a.extensions.is_empty(), "--extension/-e (extensions)"),
-        (!a.skills.is_empty() || a.no_skills, "--skills/--no-skills"),
         (!a.themes.is_empty() || a.no_themes, "--themes/--no-themes"),
         (!a.prompt_templates.is_empty() || a.no_prompt_templates, "--prompt-templates"),
     ]
@@ -162,6 +162,9 @@ fn main() -> ExitCode {
         context::load_project_context_files(&cwd, &agent_dir)
     };
 
+    // Skills (pi main@a6bde34bb6): auto-discovery + explicit --skill paths.
+    let skills = skills::load_skills(&cwd, &a.skills, !a.no_skills);
+
     let system = system_prompt::build_system_prompt(system_prompt::SystemPromptOptions {
         custom_prompt: a.system_prompt.as_deref(),
         append_system_prompt: if a.append_system_prompt.is_empty() {
@@ -173,6 +176,7 @@ fn main() -> ExitCode {
         tool_snippets: &snippets,
         cwd: &cwd_str,
         context_files: &context_files,
+        skills: &skills,
     });
 
     let cfg = agent::AgentConfig {
@@ -209,6 +213,7 @@ fn main() -> ExitCode {
             tool_snippets: &snippets,
             cwd: &cwd_str,
             context_files: &context_files,
+            skills: &skills,
         },
     ));
 

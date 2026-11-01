@@ -7,7 +7,7 @@ English ｜ [简体中文](README.zh-CN.md)
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
 
 > A behavioral clone of the [pi](https://github.com/earendil-works/pi) coding agent, rebuilt in Rust.
-> Not a rewrite with creative liberties — **186/186 behavior atoms verified identical against pi main@35dfa7573** (v1.4.0 + 221 commits), scenario by scenario.
+> Not a rewrite with creative liberties — **199/199 behavior atoms verified identical against pi main@a6bde34bb6** (v1.4.0 + 264 commits), scenario by scenario.
 
 ![pi vs pi-rs](assets/comparison.png)
 
@@ -29,7 +29,7 @@ file to deploy, nothing to install. That's what pi-rs is for.
 
 Every claim above is reproducible. pi-rs is verified against real pi at three levels:
 
-1. **Behavior atoms (186/186 identical).** Both binaries run against the same scripted mock LLM; every
+1. **Behavior atoms (199/199 identical).** Both binaries run against the same scripted mock LLM; every
    request each one sends is recorded and diffed — system prompt (byte-exact), tool schemas, wire
    encoding, request params, stdout, exit codes, session JSONL, filesystem end-state. See
    [tests/atom](tests/atom).
@@ -101,7 +101,7 @@ same entry tree (8-char ids, parentId chain), same usage accounting
 ```bash
 # behavior atoms (needs: real pi at the UPSTREAM pin + pi-rs on one box, no API key;
 # override binaries via PI_BIN / PIRS_BIN)
-bash tests/atom/run_atom.sh                     # → 186/186 atoms identical
+bash tests/atom/run_atom.sh                     # → 199/199 atoms identical
 
 # occupancy + task parity on a real model
 bash tests/parity_v100.sh <tasks-dir> pirs <task-ids>
