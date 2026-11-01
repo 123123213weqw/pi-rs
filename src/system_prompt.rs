@@ -1,6 +1,7 @@
 //! System prompt construction — port of `coding-agent/src/core/system-prompt.ts`
-//! as of **pi v1.4.0**: sectioned prompt (preamble + XML-tagged sections joined
-//! with blank lines), rendered via `getSystemMessageText` semantics.
+//! as of **pi main@a6bde34bb6** (v1.4.0 + 264 commits, "tighten system prompt"):
+//! sectioned prompt (preamble + XML-tagged sections joined with blank lines),
+//! rendered via `getSystemMessageText` semantics.
 //!
 //! Wire layout for the default run (captured from real pi 1.4.0):
 //! preamble \n\n <tools>…</tools> \n\n <rules>…</rules> \n\n <docs>…</docs> \n\n <cwd>…</cwd>
@@ -17,6 +18,8 @@ pub struct SystemPromptOptions<'a> {
     pub tool_snippets: &'a [(&'a str, &'a str)],
     pub cwd: &'a str,
     pub context_files: &'a [ContextFile],
+    /// Pre-loaded skills (pi main@a6bde34bb6: `<skills>` section).
+    pub skills: &'a [crate::skills::Skill],
 }
 
 /// Named prompt sections (pi v1.4.0 SystemPromptSections): preamble untagged,
@@ -31,7 +34,7 @@ pub fn build_sections(o: SystemPromptOptions) -> serde_json::Value {
         None => {
             sections.push((
                 "preamble".into(),
-                "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.".into(),
+                "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.".into(),
             ));
             let visible: Vec<String> = o
                 .selected_tools
@@ -43,8 +46,7 @@ pub fn build_sections(o: SystemPromptOptions) -> serde_json::Value {
                         .map(|(n, s)| format!("- {n}: {s}"))
                 })
                 .collect();
-            let tail =
-                "In addition to the tools above, you may have access to other custom tools depending on the project.";
+            let tail = "Additional tools may be available.";
             let tools_body = if visible.is_empty() {
                 format!("(none)\n\n{tail}")
             } else {
@@ -57,7 +59,7 @@ pub fn build_sections(o: SystemPromptOptions) -> serde_json::Value {
             let docs_path_p = docs_path("docs");
             let examples_path = docs_path("examples");
             let docs_body = format!(
-                "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: {readme_path}\n- Additional docs: {docs_path_p}\n- Examples: {examples_path} (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)"
+                "Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: {readme_path}\n- Additional docs: {docs_path_p}\n- Examples: {examples_path} (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- Before implementing harness changes, read the relevant docs and examples in full, following related cross-references."
             );
             sections.push(("docs".into(), wrap_section("docs", &docs_body)));
         }
@@ -88,6 +90,24 @@ pub fn build_sections(o: SystemPromptOptions) -> serde_json::Value {
         sections.push(("project_context".into(), wrap_section("project_context", &body)));
     }
 
+    // pi main@a6bde34bb6: <skills> section after project_context, before cwd.
+    // The loader hint names the read tool when present, else bash; without
+    // either, the section is omitted entirely.
+    let skill_tool = if o.selected_tools.iter().any(|t| t == "read") {
+        Some("read")
+    } else if o.selected_tools.iter().any(|t| t == "bash") {
+        Some("bash")
+    } else {
+        None
+    };
+    if let Some(tool) = skill_tool {
+        let rendered = crate::skills::format_skills_for_prompt(o.skills, tool);
+        let trimmed = rendered.trim();
+        if !trimmed.is_empty() {
+            sections.push(("skills".into(), wrap_section("skills", trimmed)));
+        }
+    }
+
     sections.push(("cwd".into(), wrap_section("cwd", &prompt_cwd)));
 
     let mut map = serde_json::Map::new();
@@ -106,7 +126,7 @@ pub fn build_system_prompt(o: SystemPromptOptions) -> String {
         Some(custom) => parts.push(custom.to_string()),
         None => {
             parts.push(
-                "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."
+                "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code."
                     .to_string(),
             );
 
@@ -121,8 +141,7 @@ pub fn build_system_prompt(o: SystemPromptOptions) -> String {
                         .map(|(n, s)| format!("- {n}: {s}"))
                 })
                 .collect();
-            let tail =
-                "In addition to the tools above, you may have access to other custom tools depending on the project.";
+            let tail = "Additional tools may be available.";
             let tools_body = if visible.is_empty() {
                 format!("(none)\n\n{tail}")
             } else {
@@ -136,7 +155,7 @@ pub fn build_system_prompt(o: SystemPromptOptions) -> String {
             let docs_path_p = docs_path("docs");
             let examples_path = docs_path("examples");
             let docs_body = format!(
-                "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: {readme_path}\n- Additional docs: {docs_path_p}\n- Examples: {examples_path} (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)"
+                "Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: {readme_path}\n- Additional docs: {docs_path_p}\n- Examples: {examples_path} (extensions, custom tools, SDK)\n- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)\n- Before implementing harness changes, read the relevant docs and examples in full, following related cross-references."
             );
             parts.push(wrap_section("docs", &docs_body));
         }
@@ -165,6 +184,22 @@ pub fn build_system_prompt(o: SystemPromptOptions) -> String {
             files.join("\n\n")
         );
         parts.push(wrap_section("project_context", &body));
+    }
+
+    // pi main@a6bde34bb6: <skills> section after project_context, before cwd.
+    let skill_tool = if o.selected_tools.iter().any(|t| t == "read") {
+        Some("read")
+    } else if o.selected_tools.iter().any(|t| t == "bash") {
+        Some("bash")
+    } else {
+        None
+    };
+    if let Some(tool) = skill_tool {
+        let rendered = crate::skills::format_skills_for_prompt(o.skills, tool);
+        let trimmed = rendered.trim();
+        if !trimmed.is_empty() {
+            parts.push(wrap_section("skills", trimmed));
+        }
     }
 
     parts.push(wrap_section("cwd", &prompt_cwd));
