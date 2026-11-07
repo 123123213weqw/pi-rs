@@ -35,7 +35,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if a.version {
-        println!("pi-rs 1.4.0+main.a6bde34bb6");
+        println!("pi-rs 1.5.0");
         return ExitCode::SUCCESS;
     }
     for (t, m) in &a.diagnostics {

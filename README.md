@@ -7,7 +7,7 @@ English ｜ [简体中文](README.zh-CN.md)
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
 
 > A behavioral clone of the [pi](https://github.com/earendil-works/pi) coding agent, rebuilt in Rust.
-> Not a rewrite with creative liberties — **199/199 behavior atoms verified identical against pi main@a6bde34bb6** (v1.4.0 + 264 commits), scenario by scenario.
+> Not a rewrite with creative liberties — **199/199 behavior atoms verified identical against pi v1.5.0**, scenario by scenario.
 
 ![pi vs pi-rs](assets/comparison.png)
 

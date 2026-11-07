@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/Rust-stable-4cc38a?logo=rust)
 
 > [pi](https://github.com/earendil-works/pi) 编码代理的**行为克隆版**，用 Rust 重写。
-> 不是随手重造——**199/199 行为原子对 pi main@a6bde34bb6（v1.4.0 + 264 提交）逐一验证一致**，场景对场景打平。
+> 不是随手重造——**199/199 行为原子对 pi v1.5.0 逐一验证一致**，场景对场景打平。
 
 | | pi 0.74.2（需 Node ≥ 22.19） | **pi-rs** |
 |---|---|---|
